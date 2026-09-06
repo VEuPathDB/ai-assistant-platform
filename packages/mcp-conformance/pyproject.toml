@@ -1,0 +1,87 @@
+[project]
+name = "veupathdb-mcp-conformance"
+version = "0.1.0"
+description = "The conformance suite an MCP tool server passes before a VEuPathDB assistant deployment admits it"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    # The revision this suite asserts is the LATEST_PROTOCOL_VERSION of the 1.x
+    # SDK. A 2.x client speaks a later one, so the bound is part of the claim.
+    "mcp>=1.27.0,<2",
+    "httpx>=0.27.1",
+    "pytest>=8.0",
+    "pydantic>=2.11.0",
+]
+
+[project.entry-points.pytest11]
+mcp_conformance = "mcp_conformance.plugin"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/mcp_conformance"]
+
+[dependency-groups]
+dev = [
+    "mypy>=1.20.0",
+    "ruff==0.15.9",
+    "starlette>=0.27",
+    "uvicorn>=0.31.1",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# The suite's own tests run the shipped families in a child pytest.
+addopts = ["-p", "pytester"]
+
+[tool.ruff]
+line-length = 88
+target-version = "py310"
+src = ["src"]
+
+[tool.ruff.lint]
+select = [
+    "E", "F", "I", "N", "W", "UP", "B", "C4", "SIM",
+    "A", "ASYNC", "BLE", "C90", "DTZ", "EM", "ERA", "FBT", "ICN", "ISC", "LOG",
+    "PIE", "PT", "PTH", "RET", "RSE", "RUF", "S", "T20", "TCH", "TID", "TRY",
+    "PERF", "FURB", "PLC", "PLE", "PLR", "PLW",
+]
+ignore = [
+    "E501",
+    "N803",
+    "N815",
+    # We don't use TYPE_CHECKING imports.
+    "TC001", "TC002", "TC003",
+]
+
+[tool.ruff.lint.mccabe]
+max-complexity = 10
+
+[tool.ruff.lint.pylint]
+max-args = 6
+max-returns = 6
+max-branches = 10
+
+[tool.ruff.lint.per-file-ignores]
+# The families are pytest modules that ship inside the distribution.
+"src/mcp_conformance/test_*.py" = ["S101", "PLR2004"]
+# A probe records whatever a foreign server does to a call, including a failure
+# no client library names. Narrowing the catch would crash the run instead.
+"src/mcp_conformance/_session.py" = ["BLE001"]
+"tests/**" = ["S101", "S105", "S106", "PLR2004", "FBT"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["mcp_conformance"]
+
+[tool.mypy]
+python_version = "3.10"
+strict = true
+plugins = ["pydantic.mypy"]
+warn_return_any = true
+warn_unused_ignores = true
+exclude = ["tests/"]
+
+[tool.pydantic-mypy]
+init_typed = false

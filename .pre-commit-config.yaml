@@ -1,0 +1,72 @@
+repos:
+  - repo: local
+    hooks:
+      - id: ruff-assistant-core
+        name: ruff (assistant-core)
+        entry: bash -c "cd packages/assistant-core && uv run ruff check src tests && uv run ruff format --check src tests"
+        language: system
+        pass_filenames: false
+        types: [python]
+        files: ^packages/assistant-core/
+      - id: mypy-assistant-core
+        name: mypy --strict (assistant-core)
+        entry: bash -c "cd packages/assistant-core && uv run mypy --strict src"
+        language: system
+        pass_filenames: false
+        types: [python]
+        files: ^packages/assistant-core/
+      - id: pytest-assistant-core
+        name: pytest (assistant-core, no application installed)
+        entry: bash -c "cd packages/assistant-core && uv run pytest tests/unit"
+        language: system
+        pass_filenames: false
+        types: [python]
+        files: ^packages/assistant-core/
+        stages: [pre-push]
+      - id: ruff-mcp-conformance
+        name: ruff (mcp-conformance)
+        entry: bash -c "cd packages/mcp-conformance && uv run ruff check src tests"
+        language: system
+        pass_filenames: false
+        types: [python]
+        files: ^packages/mcp-conformance/
+      - id: mypy-mcp-conformance
+        name: mypy --strict (mcp-conformance)
+        entry: bash -c "cd packages/mcp-conformance && uv run mypy --strict src"
+        language: system
+        pass_filenames: false
+        types: [python]
+        files: ^packages/mcp-conformance/
+      - id: pytest-mcp-conformance
+        name: pytest (mcp-conformance, fixture servers on loopback)
+        entry: bash -c "cd packages/mcp-conformance && uv run pytest"
+        language: system
+        pass_filenames: false
+        types: [python]
+        files: ^packages/mcp-conformance/
+        stages: [pre-push]
+      - id: typecheck-assistant-client
+        name: tsc --noEmit (assistant-client)
+        entry: bash -c "cd packages/assistant-client-ts && yarn typecheck"
+        language: system
+        pass_filenames: false
+        files: ^(packages/assistant-client-ts/|PROTOCOL\.md)
+      - id: prettier-assistant-client
+        name: prettier (assistant-client)
+        entry: bash -c "cd packages/assistant-client-ts && yarn format:check"
+        language: system
+        pass_filenames: false
+        files: ^packages/assistant-client-ts/
+      - id: eslint-assistant-client
+        name: eslint (assistant-client)
+        entry: bash -c "cd packages/assistant-client-ts && yarn lint"
+        language: system
+        pass_filenames: false
+        files: ^packages/assistant-client-ts/
+      - id: vitest-assistant-client
+        name: vitest (assistant-client, protocol conformance)
+        entry: bash -c "cd packages/assistant-client-ts && yarn test"
+        language: system
+        pass_filenames: false
+        files: ^(packages/assistant-client-ts/|PROTOCOL\.md)
+        stages: [pre-push]

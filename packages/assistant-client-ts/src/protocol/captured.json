@@ -1,0 +1,159 @@
+{
+  "version": "1.6.0",
+  "chunkKinds": [
+    "start",
+    "start-step",
+    "text-start",
+    "text-delta",
+    "text-end",
+    "reasoning-start",
+    "reasoning-delta",
+    "reasoning-end",
+    "tool-input-start",
+    "tool-input-delta",
+    "tool-input-available",
+    "tool-input-error",
+    "tool-approval-request",
+    "tool-output-available",
+    "tool-output-error",
+    "tool-output-denied",
+    "file",
+    "source-url",
+    "source-document",
+    "message-metadata",
+    "finish-step",
+    "error",
+    "abort",
+    "finish",
+    "done"
+  ],
+  "dataPartKinds": [
+    "data-turn-status",
+    "data-turn-usage",
+    "data-turn-stopped",
+    "data-turn-failed",
+    "data-lead-usage",
+    "data-sub-agent-call",
+    "data-sub-agent-step",
+    "data-conversation-title",
+    "data-background-task-started",
+    "data-task-progress",
+    "data-task-completed",
+    "data-tool-summary"
+  ],
+  "envelopeKinds": [
+    "user-message",
+    "system-message",
+    "assistant-message"
+  ],
+  "finishReasons": [
+    "stop",
+    "error",
+    "other"
+  ],
+  "taskLifecycle": [
+    "data-background-task-started",
+    "data-task-progress",
+    "data-task-completed"
+  ],
+  "request": {
+    "coreFields": [
+      "conversationId",
+      "id",
+      "trigger",
+      "messages",
+      "assistantId",
+      "siteId",
+      "mode",
+      "phaseModels",
+      "phaseReasoning"
+    ],
+    "extensionFields": [
+      "experimentId"
+    ],
+    "examples": [
+      {
+        "kind": "submit-message",
+        "json": "{\n  \"conversationId\": \"3f1a6f4e-2c3b-4d5e-8a7b-9c0d1e2f3a4b\",\n  \"id\": \"7c9e6679-7425-40de-944b-e07fc1f90ae7\",\n  \"trigger\": \"submit-message\",\n  \"siteId\": \"plasmodb\",\n  \"mode\": \"strategy\",\n  \"messages\": [\n    {\n      \"id\": \"b1d0f6b2-7d0e-4a1e-9f3c-1a2b3c4d5e6f\",\n      \"role\": \"user\",\n      \"parts\": [{ \"type\": \"text\", \"text\": \"which sites do you serve\" }]\n    }\n  ]\n}"
+      },
+      {
+        "kind": "approval-response",
+        "json": "{\n  \"conversationId\": \"3f1a6f4e-2c3b-4d5e-8a7b-9c0d1e2f3a4b\",\n  \"id\": \"1b4e28ba-2fa1-11d2-883f-0016d3cca427\",\n  \"trigger\": \"submit-message\",\n  \"siteId\": \"plasmodb\",\n  \"messages\": [\n    {\n      \"id\": \"b1d0f6b2-7d0e-4a1e-9f3c-1a2b3c4d5e6f\",\n      \"role\": \"user\",\n      \"parts\": [{ \"type\": \"text\", \"text\": \"clear the strategy\" }]\n    },\n    {\n      \"id\": \"c2e1a7c3-8e1f-4b2f-a04d-2b3c4d5e6f70\",\n      \"role\": \"assistant\",\n      \"parts\": [\n        {\n          \"type\": \"tool-clear_strategy\",\n          \"toolCallId\": \"call_clear\",\n          \"state\": \"approval-responded\",\n          \"input\": {},\n          \"approval\": {\n            \"id\": \"approval_clear\",\n            \"approved\": true\n          }\n        }\n      ]\n    }\n  ]\n}"
+      }
+    ]
+  },
+  "examples": [
+    {
+      "kind": "data-tool-summary",
+      "json": "{\n  \"type\": \"data-tool-summary\",\n  \"data\": {\n    \"status\": \"ok\",\n    \"summary\": \"2 plus 3 is 5\",\n    \"toolCallId\": \"call_add\"\n  }\n}"
+    },
+    {
+      "kind": "data-turn-status",
+      "json": "{\n  \"type\": \"data-turn-status\",\n  \"data\": {\n    \"label\": \"Preparing context\",\n    \"waitingOnLlm\": false\n  }\n}"
+    },
+    {
+      "kind": "data-turn-stopped",
+      "json": "{\n  \"type\": \"data-turn-stopped\",\n  \"data\": {}\n}"
+    },
+    {
+      "kind": "data-turn-usage",
+      "json": "{\n  \"type\": \"data-turn-usage\",\n  \"data\": {\n    \"costUsd\": \"0\",\n    \"totalTokens\": 57\n  },\n  \"transient\": true\n}"
+    },
+    {
+      "kind": "done",
+      "json": "\"[DONE]\""
+    },
+    {
+      "kind": "finish",
+      "json": "{\n  \"type\": \"finish\",\n  \"finishReason\": \"stop\"\n}"
+    },
+    {
+      "kind": "finish-step",
+      "json": "{\n  \"type\": \"finish-step\"\n}"
+    },
+    {
+      "kind": "message-metadata",
+      "json": "{\n  \"type\": \"message-metadata\",\n  \"messageMetadata\": {\n    \"pydantic_ai\": {\n      \"timestamp\": \"2026-01-01T00:00:00Z\"\n    }\n  }\n}"
+    },
+    {
+      "kind": "start",
+      "json": "{\n  \"type\": \"start\",\n  \"messageId\": \"00000000-0000-0000-0000-000000000000\"\n}"
+    },
+    {
+      "kind": "start-step",
+      "json": "{\n  \"type\": \"start-step\"\n}"
+    },
+    {
+      "kind": "text-delta",
+      "json": "{\n  \"type\": \"text-delta\",\n  \"delta\": \"You said: which sites do you serve\",\n  \"id\": \"00000000-0000-0000-0000-000000000000\"\n}"
+    },
+    {
+      "kind": "text-end",
+      "json": "{\n  \"type\": \"text-end\",\n  \"id\": \"00000000-0000-0000-0000-000000000000\"\n}"
+    },
+    {
+      "kind": "text-start",
+      "json": "{\n  \"type\": \"text-start\",\n  \"id\": \"00000000-0000-0000-0000-000000000000\"\n}"
+    },
+    {
+      "kind": "tool-approval-request",
+      "json": "{\n  \"type\": \"tool-approval-request\",\n  \"approvalId\": \"call_wipe\",\n  \"toolCallId\": \"call_wipe\"\n}"
+    },
+    {
+      "kind": "tool-input-available",
+      "json": "{\n  \"type\": \"tool-input-available\",\n  \"toolCallId\": \"call_add\",\n  \"toolName\": \"add\",\n  \"input\": {\n    \"a\": 2,\n    \"b\": 3\n  }\n}"
+    },
+    {
+      "kind": "tool-input-delta",
+      "json": "{\n  \"type\": \"tool-input-delta\",\n  \"toolCallId\": \"call_add\",\n  \"inputTextDelta\": \"{\\\"a\\\":2,\\\"b\\\":3}\"\n}"
+    },
+    {
+      "kind": "tool-input-start",
+      "json": "{\n  \"type\": \"tool-input-start\",\n  \"toolCallId\": \"call_add\",\n  \"toolName\": \"add\"\n}"
+    },
+    {
+      "kind": "tool-output-available",
+      "json": "{\n  \"type\": \"tool-output-available\",\n  \"toolCallId\": \"call_add\",\n  \"output\": 5\n}"
+    }
+  ]
+}

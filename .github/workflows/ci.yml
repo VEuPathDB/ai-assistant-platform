@@ -1,0 +1,112 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  assistant-core:
+    name: assistant-core
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: packages/assistant-core
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+      - uses: astral-sh/setup-uv@v7
+
+      # The lock names no application, so an assistant import fails to resolve
+      # here rather than failing a lint rule.
+      - name: Install the package alone
+        run: uv sync --frozen
+
+      - name: Run ruff
+        run: uv run ruff check src tests
+
+      - name: Check formatting
+        run: uv run ruff format --check src tests
+
+      - name: Run mypy
+        run: uv run mypy --strict src
+
+      - name: Run the hermetic suite
+        run: uv run pytest tests/unit
+
+  mcp-conformance:
+    name: mcp-conformance
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: packages/mcp-conformance
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+      - uses: astral-sh/setup-uv@v7
+
+      - name: Install the package alone
+        run: uv sync --frozen
+
+      - name: Run ruff
+        run: uv run ruff check src tests
+
+      - name: Run mypy
+        run: uv run mypy --strict src
+
+      # The suite serves its own fixture endpoints on loopback.
+      - name: Run the suite
+        run: uv run pytest
+
+  assistant-client:
+    name: assistant-client
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Corepack before setup-node so the cache step uses the pinned Yarn.
+      - name: Enable Corepack
+        run: corepack enable
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24.13.0"
+          cache: "yarn"
+          cache-dependency-path: yarn.lock
+
+      - name: Install dependencies
+        run: yarn install --immutable
+
+      - name: Type check
+        working-directory: packages/assistant-client-ts
+        run: yarn typecheck
+
+      - name: Run ESLint
+        working-directory: packages/assistant-client-ts
+        run: yarn lint
+
+      - name: Check formatting
+        working-directory: packages/assistant-client-ts
+        run: yarn format:check
+
+      # The suite is the protocol's consumer side: it fails when the vendored
+      # capture and PROTOCOL.md disagree, and when a kind the document defines
+      # has no reducer.
+      - name: Run conformance tests
+        working-directory: packages/assistant-client-ts
+        run: yarn test
+
+      # The published artifact is JS and declarations under dist/, which
+      # nothing in this folder resolves: only this step reads it.
+      - name: Build the package
+        working-directory: packages/assistant-client-ts
+        run: yarn build

@@ -1,0 +1,117 @@
+[project]
+name = "assistant-core"
+version = "0.2.0a1"
+description = "The assistant runtime: turns, streaming, checkpoints, memory"
+requires-python = ">=3.14"
+dependencies = [
+    "pydantic>=2.12.0",
+    "pydantic-settings>=2.14.2",
+    "pydantic-ai>=2.22.0,<3",
+    "jsonschema>=4.26.0",
+    "genai-prices>=0.0.40",
+    "langgraph==1.1.6",
+    # This package owns the checkpoint serializer, so it owns the serializer's
+    # version. apps/api depends on this package and inherits the pin, which is
+    # what makes the two locks resolve one decoder.
+    "langgraph-checkpoint==4.2.0",
+    "langgraph-checkpoint-postgres==3.1.1",
+    "psycopg[binary]>=3.2.0",
+    "sqlalchemy[asyncio]>=2.0.49",
+    "asyncpg>=0.31.0",
+    "pgvector>=0.5.0",
+    "numpy>=2.0.0",
+    "openai>=2.0.0",
+    "structlog>=25.0.0",
+    "opentelemetry-api>=1.39.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/assistant_core"]
+
+[dependency-groups]
+dev = [
+    # The in-process MCP server the tool-source suite runs against. The
+    # client half already arrives with pydantic-ai; only the server is extra.
+    "fastmcp-slim[server]>=3.3.0,<4",
+    "mypy>=1.20.0",
+    "pytest>=9.0.2",
+    "pytest-asyncio>=1.3.0",
+    "ruff==0.15.9",
+    "testcontainers>=4.14.0",
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "session"
+asyncio_default_test_loop_scope = "session"
+testpaths = ["tests"]
+pythonpath = ["src", "."]
+addopts = "-m 'not live_embeddings'"
+markers = [
+    "live_embeddings: one real call to the embeddings API (opt-in; run via `uv run pytest tests/live -m live_embeddings --override-ini addopts=''`)",
+]
+
+[tool.ruff]
+line-length = 88
+target-version = "py314"
+src = ["src"]
+
+[tool.ruff.lint]
+select = [
+    "E", "F", "I", "N", "W", "UP", "B", "C4", "SIM",
+    "A", "ASYNC", "BLE", "C90", "DTZ", "EM", "ERA", "FBT", "ICN", "ISC", "LOG",
+    "PIE", "PT", "PTH", "RET", "RSE", "RUF", "S", "T20", "TCH", "TID", "TRY",
+    "PERF", "FURB", "PLC", "PLE", "PLR", "PLW",
+]
+ignore = [
+    "E501",
+    "N803",
+    "N815",
+    # Pydantic models with self-referential fields need quoted forward refs
+    # even on Python 3.14 (PEP 649) because Pydantic's metaclass evaluates
+    # annotations eagerly at class construction time.
+    "UP037",
+    # We don't use TYPE_CHECKING imports.
+    "TC001", "TC002", "TC003",
+]
+
+[tool.ruff.lint.mccabe]
+max-complexity = 10
+
+[tool.ruff.lint.pylint]
+max-args = 6
+max-returns = 6
+max-branches = 10
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = [
+    "S101",
+    "S105",
+    "S106",
+    "PLR2004",
+    "FBT",
+    "S311",
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["assistant_core"]
+
+[tool.mypy]
+python_version = "3.14"
+strict = true
+plugins = ["pydantic.mypy"]
+warn_return_any = true
+warn_unused_ignores = true
+disable_error_code = ["import-untyped", "untyped-decorator"]
+exclude = ["tests/"]
+
+[tool.pydantic-mypy]
+init_typed = false
+
+[tool.pyright]
+pythonVersion = "3.14"
+pythonPlatform = "Linux"
