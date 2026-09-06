@@ -50,7 +50,7 @@ repos:
         entry: bash -c "cd packages/assistant-client-ts && yarn typecheck"
         language: system
         pass_filenames: false
-        files: ^(packages/assistant-client-ts/|PROTOCOL\.md)
+        files: ^(packages/assistant-client-ts/|packages/assistant-core/src/assistant_core/PROTOCOL\.md)
       - id: prettier-assistant-client
         name: prettier (assistant-client)
         entry: bash -c "cd packages/assistant-client-ts && yarn format:check"
@@ -68,5 +68,5 @@ repos:
         entry: bash -c "cd packages/assistant-client-ts && yarn test"
         language: system
         pass_filenames: false
-        files: ^(packages/assistant-client-ts/|PROTOCOL\.md)
+        files: ^(packages/assistant-client-ts/|packages/assistant-core/src/assistant_core/PROTOCOL\.md)
         stages: [pre-push]

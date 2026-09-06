@@ -18,11 +18,12 @@ This folder is its own Yarn project: `package.json` declares
 is the first step of the client's CI lane, so the suite runs against the versions
 the lock names rather than whatever a fresh install picks.
 
-A consuming application reaches the client through Yarn's `portal:` protocol
-(`"@pathfinder/assistant-client": "portal:../../assistant-platform/packages/assistant-client-ts"`
-in `apps/web/package.json`). A portal installs the target's `dependencies` and
-not its `devDependencies`, and the client's `ai` peer lives in the target's own
-tree, so an application that compiles this source runs `yarn install` here too.
+A consuming application names this repository, the workspace and one commit
+(`"@pathfinder/assistant-client":
+"git+https://github.com/VEuPathDB/ai-assistant-platform.git#workspace=@pathfinder/assistant-client&commit=<sha>"`).
+Yarn clones the repository, installs it with its own lock, runs `prepack` and
+packs `dist`, so the consumer compiles the built output and needs no install
+here.
 
 `ai` is pinned to `6.0.154` and the peer range stops below `6.0.250`. That
 release changed `resumeStream` so a resumed stream is a fresh response instead of
@@ -34,8 +35,8 @@ belong to the suspended turn's message. Under `ai` 6.0.271 two
 
 ## PROTOCOL.md is the contract
 
-[`PROTOCOL.md`](PROTOCOL.md) is the wire an `assistant-core` deployment serves
-and the TypeScript client reads: the frame grammar, cursor semantics, the
+[`PROTOCOL.md`](packages/assistant-core/src/assistant_core/PROTOCOL.md) is the
+wire an `assistant-core` deployment serves and the TypeScript client reads: the frame grammar, cursor semantics, the
 snapshot and tail contract, the turn shape, the chunk vocabulary and the
 reduction rules. It is versioned and additive only.
 
@@ -46,6 +47,10 @@ The client's suite is the **consumer-side gate**: `yarn sync:protocol` reads the
 document into `src/protocol/captured.json`, and `tests/conformance/` fails when
 the capture and the document disagree. A change to `PROTOCOL.md` that neither
 side implements fails both.
+
+The document ships inside the runtime package, so an installed consumer reads it
+at `Path(assistant_core.__file__).parent / "PROTOCOL.md"`, the same bytes the
+deployment serves. `tests/packaging` builds the wheel and reads it back.
 
 ## mcp-conformance is an admission gate
 

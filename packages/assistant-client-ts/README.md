@@ -1,7 +1,7 @@
 # @pathfinder/assistant-client
 
 A headless TypeScript client for the assistant runtime wire protocol. It is
-built from `assistant-platform/PROTOCOL.md`, not from the app that uses it,
+built from `PROTOCOL.md`, not from the app that uses it,
 and its test suite is the protocol's consumer-side conformance suite.
 
 ## Entry points

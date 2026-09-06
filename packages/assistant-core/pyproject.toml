@@ -50,9 +50,10 @@ asyncio_default_fixture_loop_scope = "session"
 asyncio_default_test_loop_scope = "session"
 testpaths = ["tests"]
 pythonpath = ["src", "."]
-addopts = "-m 'not live_embeddings'"
+addopts = "-m 'not live_embeddings and not wheel'"
 markers = [
     "live_embeddings: one real call to the embeddings API (opt-in; run via `uv run pytest tests/live -m live_embeddings --override-ini addopts=''`)",
+    "wheel: builds and installs the wheel (opt-in; run via `uv run pytest tests/packaging -m wheel --override-ini addopts=''`)",
 ]
 
 [tool.ruff]

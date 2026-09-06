@@ -41,6 +41,9 @@ jobs:
       - name: Run the hermetic suite
         run: uv run pytest tests/unit
 
+      - name: Check that the wheel carries the wire document
+        run: uv run pytest tests/packaging -m wheel --override-ini addopts=''
+
   mcp-conformance:
     name: mcp-conformance
     runs-on: ubuntu-latest

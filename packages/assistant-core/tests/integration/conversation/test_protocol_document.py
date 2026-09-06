@@ -27,6 +27,7 @@ from tests.synthetic import (
     SyntheticRuntime,
 )
 
+import assistant_core
 from assistant_core.conversation.stream_parts.core_parts import (
     register_core_stream_parts,
 )
@@ -37,7 +38,7 @@ from assistant_core.conversation.ui_message_reducer import (
     USER_MESSAGE_CHUNK_TYPE,
 )
 
-PROTOCOL = Path(__file__).parents[4] / "PROTOCOL.md"
+PROTOCOL = Path(assistant_core.__file__).parent / "PROTOCOL.md"
 
 _EXAMPLES_BLOCK = re.compile(
     r"<!-- examples:begin -->\n(.*?)\n<!-- examples:end -->",

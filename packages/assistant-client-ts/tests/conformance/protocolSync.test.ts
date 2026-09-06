@@ -6,7 +6,7 @@ import captured from "../../src/protocol/captured.json" with { type: "json" };
 import { extractProtocol } from "../../src/protocol/extract.ts";
 
 const PROTOCOL_PATH = fileURLToPath(
-  new URL("../../../../PROTOCOL.md", import.meta.url),
+  new URL("../../../assistant-core/src/assistant_core/PROTOCOL.md", import.meta.url),
 );
 
 describe("the vendored protocol capture", () => {

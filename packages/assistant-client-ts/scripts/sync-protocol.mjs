@@ -3,7 +3,9 @@ import { fileURLToPath } from "node:url";
 
 import { extractProtocol } from "../src/protocol/extract.ts";
 
-const source = fileURLToPath(new URL("../../../PROTOCOL.md", import.meta.url));
+const source = fileURLToPath(
+  new URL("../../assistant-core/src/assistant_core/PROTOCOL.md", import.meta.url),
+);
 const target = fileURLToPath(new URL("../src/protocol/captured.json", import.meta.url));
 
 const captured = extractProtocol(readFileSync(source, "utf8"));
