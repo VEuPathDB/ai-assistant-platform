@@ -53,7 +53,5 @@ def test_a_session_that_dies_with_the_call_fails_the_family(
     result = run_family(MODULE, servers(Defect.SESSION_DIES_AFTER_TIMEOUT), *SLOW)
 
     assert result.ret != 0
-    assert failed_checks(result) == {
-        "test_the_session_survives_a_call_that_timed_out"
-    }
+    assert failed_checks(result) == {"test_the_session_survives_a_call_that_timed_out"}
     result.stdout.fnmatch_lines(["*session is gone*"])

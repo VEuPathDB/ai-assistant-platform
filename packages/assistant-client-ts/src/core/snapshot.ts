@@ -1,4 +1,5 @@
 import { type ProtocolChunk, asChunk, readRecord, readString } from "./chunks.ts";
+import { type OpenMessage } from "./cursor.ts";
 import {
   type MessagePart,
   type MessageRole,
@@ -17,6 +18,8 @@ export const HANDLED_ENVELOPE_KINDS: ReadonlySet<string> = new Set([
 export interface Snapshot {
   chunks: unknown[];
   cursor: number;
+  /** Section 4: the message the last turn left open, absent when it closed. */
+  openMessage?: OpenMessage;
 }
 
 const ROLES = ["system", "user", "assistant"] as const;

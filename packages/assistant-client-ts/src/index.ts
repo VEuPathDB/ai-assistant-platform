@@ -15,6 +15,7 @@ export {
 } from "./core/client.ts";
 export {
   type CursorStore,
+  type OpenMessage,
   type WebStorageCursorStoreOptions,
   memoryCursorStore,
   recordFrameCursor,

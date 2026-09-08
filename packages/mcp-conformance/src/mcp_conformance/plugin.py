@@ -44,7 +44,9 @@ from mcp_conformance._probe import (
 )
 from mcp_conformance._report import Outcome, ReportAccumulator, ReportTarget
 
-_NO_ENDPOINT = f"{ENDPOINT_OPTION} names no server, so the families have nothing to read"
+_NO_ENDPOINT = (
+    f"{ENDPOINT_OPTION} names no server, so the families have nothing to read"
+)
 
 
 def pytest_addhooks(pluginmanager: pytest.PytestPluginManager) -> None:

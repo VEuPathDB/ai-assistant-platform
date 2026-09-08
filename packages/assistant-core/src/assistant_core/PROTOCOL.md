@@ -1,6 +1,6 @@
 # The assistant runtime wire protocol
 
-**Version 1.6.0.** This document specifies the bytes a client exchanges with an
+**Version 1.7.0.** This document specifies the bytes a client exchanges with an
 assistant built on `assistant_core`. It is written so a consumer in any
 language can implement a client from this page alone, with no reference to the
 JavaScript SDK that inspired the chunk vocabulary. Section 14 records what each
@@ -41,9 +41,10 @@ Two reads are defined:
 - **Tail.** `GET <thread>/events?after=<cursor>` streams every chunk after
   `cursor` and then follows the log live. `after` defaults to `0`, which means
   the whole thread.
-- **Snapshot.** `GET <thread>/events/snapshot` returns `{chunks, cursor}` for
-  the completed history: every chunk up to and including the most recent turn
-  terminator, plus the prompt that opened an in-flight turn when one exists.
+- **Snapshot.** `GET <thread>/events/snapshot` returns
+  `{chunks, cursor, openMessage?}` for the completed history: every chunk up to
+  and including the most recent turn terminator, plus the prompt that opened an
+  in-flight turn when one exists.
 
 The runtime guarantees that a snapshot followed by a tail from the snapshot's
 cursor yields exactly the chunks a reader would have seen live, in the same
@@ -94,6 +95,26 @@ advance its cursor on one.
   it on reconnect. A client that has lost its cursor MUST take a snapshot
   rather than tailing from `0` mid-turn, because a tail from `0` replays parts
   the client may already hold.
+
+A client that holds a message a turn left open SHOULD resume that message from
+its own `start` chunk: it names a cursor before that `start`, ignores every
+chunk the tail delivers before it, and rebuilds the message whole. A turn that
+ends with `finishReason` `stop` or `error` closes its message, and a client
+resumes such a thread after the turn's `done`. Section 6.1 is the reason the
+rule exists: the chunks a durable task writes after `done` belong to the
+message that started the task, and a reader that meets them without that
+message's `start` cannot place them.
+
+A snapshot names that message when its last one is still open: `openMessage`
+carries the message's `messageId` and, as `after`, the exclusive cursor a tail
+replays it from. It is absent when the last message is closed. A client that has lost
+its cursor therefore reads the thread and its resume point in one request, and
+never tails from `0`.
+
+A tail ends at the first `done` it serves (section 6.1), so a client reading an
+open message across a durable gap issues a second tail from that `done`'s
+cursor. The whole gap belongs to the message the first tail replayed, and the
+client MUST NOT open a new message for it.
 
 A host MAY answer a tail request with `204 No Content` when the thread has no
 turn in flight. A client that receives it MUST fall back to the snapshot. A
@@ -832,6 +853,8 @@ data: {"type":"done","reason":"completed"}
 
 | Version | What it added |
 | --- | --- |
+| `1.7.0` | The snapshot carries `openMessage` (sections 2, 4): the `messageId` of the message its last turn left open and the exclusive cursor a tail replays it from. Before this a client that had lost its cursor could recover the thread but not its resume point, so it tailed from `0` mid-turn. Section 4 also states the second tail a client opens across a durable gap, because a tail ends at the first `done` it serves. |
+| `1.6.1` | Section 4 states how a client resumes a message a turn left open: from a cursor before that message's `start`, dropping what the tail delivers before it, so the message is rebuilt whole. Before this the section named only the last observed cursor, and a reader that resumed from one met the gap's chunks of section 6.1 with no `start` to place them on. |
 | `1.6.0` | `data-lead-usage` and `data-sub-agent-call` carry `contextTokens` and `contextWindow`: the input size of the agent's latest request, and the model's context window. Both are optional and 0 means unknown. Before this the parts carried cumulative `tokens` only, so a client could not show how full an agent's window was, and history the runtime sheds mid-run was invisible. |
 | `1.5.3` | Section 6.1 states what a turn suspended on several durable tasks emits: one `data-background-task-started` per task, each task's progress and outcome in the gap in completion order, and one continuation turn after the last outcome. Before this the section read as one task per suspension, so a client could take the first `data-task-completed` for the end of the gap. |
 | `1.5.2` | Section 9 states that `start` opens the message it names and that a reader carries no part across it. Before this the rule was only implied by section 6.1, and a reader that builds one message per connection copied a suspended turn's parts into the continuation turn that follows it in the same tail. |

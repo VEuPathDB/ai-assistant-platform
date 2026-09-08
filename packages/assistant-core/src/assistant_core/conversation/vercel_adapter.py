@@ -67,8 +67,9 @@ class PinnedVercelAIEventStream(VercelAIEventStream[Any, Any]):
         # GraphBubbleUp is langgraph control flow; re-raise so Pregel sees it.
         if isinstance(error, GraphBubbleUp):
             raise error
-        logger.exception(
+        logger.error(
             "pydantic-ai stream raised; converting to chat-visible ErrorChunk",
+            exc_info=error,
             error_type=type(error).__name__,
             error_msg=str(error),
         )

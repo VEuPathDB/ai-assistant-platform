@@ -7,6 +7,7 @@ const PACKAGE_ROOT = fileURLToPath(new URL("../..", import.meta.url));
 
 interface PackageManifest {
   readonly dependencies?: Record<string, string>;
+  readonly devDependencies?: Record<string, string>;
   readonly peerDependencies?: Record<string, string>;
   readonly peerDependenciesMeta?: Record<string, { readonly optional?: boolean }>;
   readonly exports: Record<string, { readonly types: string; readonly import: string }>;
@@ -66,8 +67,12 @@ describe("the dependency-free core", () => {
   });
 
   it("declares the AI SDK as an optional peer", () => {
-    expect(manifest.peerDependencies?.["ai"]).toBeDefined();
+    expect(manifest.peerDependencies?.["ai"]).toBe(">=6.0.250 <8");
     expect(manifest.peerDependenciesMeta?.["ai"]?.optional).toBe(true);
+  });
+
+  it("pins the one SDK version the suite runs against", () => {
+    expect(manifest.devDependencies?.["ai"]).toMatch(/^\d+\.\d+\.\d+$/);
   });
 
   it("imports nothing outside the package except from the ai-sdk ring", () => {

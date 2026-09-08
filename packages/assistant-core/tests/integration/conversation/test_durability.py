@@ -51,14 +51,15 @@ async def test_the_snapshot_rebuilds_the_message_the_live_stream_built(
     outcome = await runtime.run(PLAIN_PROMPT)
     cursor, live = await fetch_chunks_after(runtime.conversation_id, 0)
 
-    boundary, snapshot = await fetch_snapshot_chunks(runtime.conversation_id)
+    snapshot = await fetch_snapshot_chunks(runtime.conversation_id)
 
-    assert snapshot == live
-    assert boundary == cursor
-    assert reduce_chunks(snapshot, str(outcome.turn_message_id)) == reduce_chunks(
-        live,
+    assert snapshot.chunks == live
+    assert snapshot.cursor == cursor
+    assert snapshot.open_message is None
+    assert reduce_chunks(
+        snapshot.chunks,
         str(outcome.turn_message_id),
-    )
+    ) == reduce_chunks(live, str(outcome.turn_message_id))
 
 
 async def test_the_snapshot_of_two_turns_replays_both_messages(
@@ -67,8 +68,8 @@ async def test_the_snapshot_of_two_turns_replays_both_messages(
     first = await runtime.run(PLAIN_PROMPT)
     second = await runtime.run(ADD_PROMPT)
 
-    _boundary, snapshot = await fetch_snapshot_chunks(runtime.conversation_id)
-    turns = split_into_turns(snapshot)
+    snapshot = await fetch_snapshot_chunks(runtime.conversation_id)
+    turns = split_into_turns(snapshot.chunks)
 
     assert len(turns) == 2
     messages = [

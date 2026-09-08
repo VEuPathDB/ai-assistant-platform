@@ -5,7 +5,12 @@ import {
   type UIMessageChunk,
 } from "ai";
 
-import { isKnownChunkKind, parseChunk, readString } from "../core/chunks.ts";
+import {
+  type ProtocolChunk,
+  isKnownChunkKind,
+  parseChunk,
+  readString,
+} from "../core/chunks.ts";
 import {
   type CursorStore,
   recordFrameCursor,
@@ -15,14 +20,14 @@ import {
 import { HANDLED_ENVELOPE_KINDS } from "../core/snapshot.ts";
 import { type Frame, isComment, isDone, readFrames } from "../core/sse.ts";
 
+const NO_TURN_IN_FLIGHT = 204;
+
 export interface DurableChatTransportOptions<
   UI_MESSAGE extends UIMessage,
 > extends HttpChatTransportInitOptions<UI_MESSAGE> {
   conversationId: string;
   eventsUrlFor: (conversationId: string) => string;
   cursors?: CursorStore;
-  /** The assistant message this client already holds, if the thread has one. */
-  openMessageId?: string;
   /** Called with a chunk this client cannot place, which section 5 says to ignore. */
   onUnhandledChunk?: (chunk: unknown) => void;
 }
@@ -33,6 +38,23 @@ interface HeldTurn {
   rest: AsyncGenerator<Frame>;
 }
 
+/** What the last reconnect was made with, reused by a chained tail. */
+interface ReconnectInit {
+  headers: HeadersInit | undefined;
+  credentials: RequestCredentials | undefined;
+  signal: AbortSignal | undefined;
+  after: number;
+}
+
+/** How one read relates to the message the client already holds. */
+export interface Replay {
+  resuming: boolean;
+  /** The message to replay, and the only one this stream may carry first. */
+  messageId: string | undefined;
+  /** The last cursor the client observed, buffered rather than streamed. */
+  through: number;
+}
+
 async function* framesFrom(
   head: Frame,
   rest: AsyncGenerator<Frame>,
@@ -41,45 +63,50 @@ async function* framesFrom(
   yield* rest;
 }
 
+function opensMessage(chunk: ProtocolChunk | undefined): string | undefined {
+  return chunk?.type === "start" ? readString(chunk, "messageId") : undefined;
+}
+
 /**
- * A chat transport over the durable event log. It resumes from the cursor it
- * holds, reads the frames section 3 defines, and drops what a client of this
- * protocol version must ignore before the SDK's chunk schema sees it.
- *
- * The SDK builds one message per stream, and a resumed stream continues the
- * message the client already holds. A `start` chunk that names another message
- * therefore ends the stream: the transport holds the rest of the tail and
- * serves it to the next resume, so no part of one message reaches the next.
+ * A chat transport over the durable event log. It replays a message a turn left
+ * open from that message's own `start`, across as many tails as the host serves,
+ * and holds the next `start` for the resume that opens its message.
  */
 export class DurableChatTransport<
   UI_MESSAGE extends UIMessage,
 > extends DefaultChatTransport<UI_MESSAGE> {
   private readonly conversationId: string;
+  private readonly eventsUrl: string;
   private readonly cursors: CursorStore;
+  private readonly reconnectInit: ReconnectInit;
   private readonly onUnhandledChunk: ((chunk: unknown) => void) | undefined;
-  private openMessageId: string | undefined;
   private resuming = false;
   private held: HeldTurn | undefined;
 
   constructor(options: DurableChatTransportOptions<UI_MESSAGE>) {
-    const {
-      conversationId,
-      eventsUrlFor,
-      cursors,
-      openMessageId,
-      onUnhandledChunk,
-      ...base
-    } = options;
+    const { conversationId, eventsUrlFor, cursors, onUnhandledChunk, ...base } =
+      options;
     const store = cursors ?? webStorageCursorStore();
+    const eventsUrl = eventsUrlFor(conversationId);
+    const init: ReconnectInit = {
+      headers: undefined,
+      credentials: undefined,
+      signal: undefined,
+      after: 0,
+    };
     super({
       ...base,
       prepareReconnectToStreamRequest: ({ headers, credentials }) => {
+        init.headers = headers;
+        init.credentials = credentials;
+        const open = store.readOpenMessage(conversationId);
+        init.after = open?.after ?? store.read(conversationId);
         const request: {
           api: string;
           headers?: HeadersInit;
           credentials?: RequestCredentials;
         } = {
-          api: tailUrl(eventsUrlFor(conversationId), store.read(conversationId)),
+          api: tailUrl(eventsUrl, init.after),
         };
         if (headers !== undefined) request.headers = headers;
         if (credentials !== undefined) request.credentials = credentials;
@@ -87,8 +114,9 @@ export class DurableChatTransport<
       },
     });
     this.conversationId = conversationId;
+    this.eventsUrl = eventsUrl;
     this.cursors = store;
-    this.openMessageId = openMessageId;
+    this.reconnectInit = init;
     this.onUnhandledChunk = onUnhandledChunk;
   }
 
@@ -97,42 +125,116 @@ export class DurableChatTransport<
     return this.held?.messageId;
   }
 
+  /** Read the tail after `cursor`, or nothing when no turn is in flight. */
+  private async tailBody(cursor: number): Promise<ReadableStream<Uint8Array> | null> {
+    const fetchImpl = this.fetch ?? globalThis.fetch;
+    const url = tailUrl(this.eventsUrl, cursor);
+    const response = await fetchImpl(url, {
+      method: "GET",
+      ...(this.reconnectInit.headers === undefined
+        ? {}
+        : { headers: this.reconnectInit.headers }),
+      ...(this.reconnectInit.credentials === undefined
+        ? {}
+        : { credentials: this.reconnectInit.credentials }),
+      ...(this.reconnectInit.signal === undefined
+        ? {}
+        : { signal: this.reconnectInit.signal }),
+    });
+    if (response.status === NO_TURN_IN_FLIGHT) return null;
+    if (!response.ok) {
+      throw new Error(`assistant tail failed: ${String(response.status)} ${url}`);
+    }
+    return response.body;
+  }
+
+  /**
+   * One stream across the tail boundaries a host serves, while a message is open.
+   * The chain ends where a response does not carry the thread past its request,
+   * so a host that re-serves one `done` cannot hold the client in a loop.
+   */
+  private async *tailChain(
+    initial: AsyncGenerator<Frame>,
+    from: number,
+  ): AsyncGenerator<Frame> {
+    let frames = initial;
+    let requested = from;
+    let cursor = 0;
+    for (;;) {
+      let endedOnDone = false;
+      for (;;) {
+        const next = await frames.next();
+        if (next.done === true) break;
+        cursor = next.value.eventId ?? cursor;
+        endedOnDone = isDone(next.value);
+        yield next.value;
+      }
+      if (!endedOnDone) return;
+      if (this.cursors.readOpenMessage(this.conversationId) === undefined) return;
+      if (cursor <= requested) return;
+      const body = await this.tailBody(cursor);
+      if (body === null) return;
+      requested = cursor;
+      frames = readFrames(body, { allowTruncatedTail: true });
+    }
+  }
+
   /** Re-frame the payloads this client accepted, for the SDK's own reader. */
-  private acceptedPayloads(
+  protected acceptedPayloads(
     frames: AsyncGenerator<Frame>,
-    resuming: boolean,
+    replay: Replay,
   ): ReadableStream<Uint8Array> {
     const encoder = new TextEncoder();
+    let awaiting = replay.messageId;
+    let current = replay.messageId;
+    // The prefix the client already holds reaches the SDK as one write, so the
+    // message it rebuilds from empty state is never read back half built.
+    let replayed: string[] | undefined = replay.through > 0 ? [] : undefined;
     return new ReadableStream<Uint8Array>({
       start: async (controller) => {
+        const flush = (): void => {
+          if (replayed === undefined) return;
+          const buffered = replayed;
+          replayed = undefined;
+          if (buffered.length > 0)
+            controller.enqueue(encoder.encode(buffered.join("")));
+        };
         try {
           for (;;) {
             const next = await frames.next();
             if (next.done === true) break;
             const frame = next.value;
-            recordFrameCursor(this.cursors, this.conversationId, frame);
-            if (isComment(frame) || isDone(frame) || frame.data === undefined) continue;
-            const chunk = parseChunk(frame.data);
+            if (isComment(frame) || frame.data === undefined) continue;
+            if (frame.eventId === undefined || frame.eventId > replay.through) flush();
+            const chunk = isDone(frame) ? undefined : parseChunk(frame.data);
+            const opens = opensMessage(chunk);
+            if (awaiting !== undefined) {
+              if (opens !== awaiting) continue;
+              awaiting = undefined;
+            }
+            recordFrameCursor(this.cursors, this.conversationId, frame, chunk);
             if (chunk === undefined || HANDLED_ENVELOPE_KINDS.has(chunk.type)) continue;
             if (!isKnownChunkKind(chunk.type)) {
               this.onUnhandledChunk?.(chunk);
               continue;
             }
-            const opens =
-              chunk.type === "start" ? readString(chunk, "messageId") : undefined;
             if (
-              resuming &&
+              replay.resuming &&
               opens !== undefined &&
-              this.openMessageId !== undefined &&
-              opens !== this.openMessageId
+              current !== undefined &&
+              opens !== current
             ) {
+              flush();
               this.held = { messageId: opens, head: frame, rest: frames };
               controller.close();
               return;
             }
-            if (opens !== undefined) this.openMessageId = opens;
-            controller.enqueue(encoder.encode(`data: ${frame.data}\n\n`));
+            if (opens !== undefined) current = opens;
+            const payload = `data: ${frame.data}\n\n`;
+            if (replayed !== undefined) replayed.push(payload);
+            else controller.enqueue(encoder.encode(payload));
           }
+          flush();
           controller.close();
         } catch (err) {
           controller.error(err);
@@ -143,19 +245,23 @@ export class DurableChatTransport<
 
   private reader(
     frames: AsyncGenerator<Frame>,
-    resuming: boolean,
+    replay: Replay,
   ): ReadableStream<UIMessageChunk> {
-    return super.processResponseStream(this.acceptedPayloads(frames, resuming));
+    return super.processResponseStream(this.acceptedPayloads(frames, replay));
   }
 
   override async reconnectToStream(
     options: Parameters<DefaultChatTransport<UI_MESSAGE>["reconnectToStream"]>[0],
   ): Promise<ReadableStream<UIMessageChunk> | null> {
+    this.reconnectInit.signal = options.abortSignal;
     const held = this.held;
     if (held !== undefined) {
       this.held = undefined;
-      this.openMessageId = held.messageId;
-      return this.reader(framesFrom(held.head, held.rest), true);
+      return this.reader(framesFrom(held.head, held.rest), {
+        resuming: true,
+        messageId: held.messageId,
+        through: 0,
+      });
     }
     this.resuming = true;
     try {
@@ -168,6 +274,15 @@ export class DurableChatTransport<
   protected override processResponseStream(
     stream: ReadableStream<Uint8Array<ArrayBufferLike>>,
   ): ReadableStream<UIMessageChunk> {
-    return this.reader(readFrames(stream, { allowTruncatedTail: true }), this.resuming);
+    const frames = readFrames(stream, { allowTruncatedTail: true });
+    if (!this.resuming) {
+      return this.reader(frames, { resuming: false, messageId: undefined, through: 0 });
+    }
+    const messageId = this.cursors.readOpenMessage(this.conversationId)?.messageId;
+    return this.reader(this.tailChain(frames, this.reconnectInit.after), {
+      resuming: true,
+      messageId,
+      through: messageId === undefined ? 0 : this.cursors.read(this.conversationId),
+    });
   }
 }

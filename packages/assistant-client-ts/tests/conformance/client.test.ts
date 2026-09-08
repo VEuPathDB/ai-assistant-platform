@@ -218,6 +218,36 @@ describe("section 2, the snapshot", () => {
     expect(cursors.read("c1")).toBe(21);
   });
 
+  it("seeds the store with the message its last turn left open", async () => {
+    const cursors = memoryCursorStore();
+    const { client } = clientWith(
+      [
+        jsonResponse({
+          cursor: 21,
+          chunks: [],
+          openMessage: { messageId: "a1", after: 17 },
+        }),
+      ],
+      { cursors },
+    );
+
+    await client.snapshot("c1");
+
+    expect(cursors.readOpenMessage("c1")).toEqual({ messageId: "a1", after: 17 });
+  });
+
+  it("clears a stale open message when the snapshot names none", async () => {
+    const cursors = memoryCursorStore();
+    cursors.writeOpenMessage("c1", { messageId: "a0", after: 3 });
+    const { client } = clientWith([jsonResponse({ cursor: 21, chunks: [] })], {
+      cursors,
+    });
+
+    await client.snapshot("c1");
+
+    expect(cursors.readOpenMessage("c1")).toBeUndefined();
+  });
+
   it("reads a thread with no history as an empty conversation", async () => {
     const { client } = clientWith([jsonResponse({ cursor: 0, chunks: [] })]);
 

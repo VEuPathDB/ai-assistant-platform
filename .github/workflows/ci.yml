@@ -23,6 +23,8 @@ jobs:
         with:
           python-version: "3.14"
       - uses: astral-sh/setup-uv@v7
+        with:
+          version: "0.12.10"
 
       # The lock names no application, so an assistant import fails to resolve
       # here rather than failing a lint rule.
@@ -56,6 +58,8 @@ jobs:
         with:
           python-version: "3.14"
       - uses: astral-sh/setup-uv@v7
+        with:
+          version: "0.12.10"
 
       - name: Install the package alone
         run: uv sync --frozen

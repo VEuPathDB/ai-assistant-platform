@@ -130,13 +130,31 @@ describe("the transport reads the wire the protocol defines", () => {
   });
 });
 
+const FINISHED = '{"type":"finish","finishReason":"stop"}';
+const SUSPENDED = '{"type":"finish","finishReason":"other"}';
+
 describe("the transport resumes where it left off", () => {
   it("reconnects after the last turn boundary it saw", async () => {
     const cursors = memoryCursorStore();
-    await chunksOf(frameText(9, START) + frameText(14, DONE_PAYLOAD), { cursors });
+    await chunksOf(
+      frameText(9, START) + frameText(12, FINISHED) + frameText(14, DONE_PAYLOAD),
+      { cursors },
+    );
 
     expect(await probe({ cursors }).reconnectUrl()).toBe(
       "/api/v1/conversations/c1/events?after=14",
+    );
+  });
+
+  it("reconnects from the start of a message a suspended turn left open", async () => {
+    const cursors = memoryCursorStore();
+    await chunksOf(
+      frameText(9, START) + frameText(12, SUSPENDED) + frameText(14, DONE_PAYLOAD),
+      { cursors },
+    );
+
+    expect(await probe({ cursors }).reconnectUrl()).toBe(
+      "/api/v1/conversations/c1/events?after=0",
     );
   });
 

@@ -60,7 +60,5 @@ def test_a_read_only_hint_that_writes_fails_the_family(
     result = run_family(MODULE, server, *CONFIGURED)
 
     assert result.ret != 0
-    assert failed_checks(result) == {
-        "test_read_only_calls_leave_the_account_unchanged"
-    }
+    assert failed_checks(result) == {"test_read_only_calls_leave_the_account_unchanged"}
     result.stdout.fnmatch_lines(["*identity-a-*"])

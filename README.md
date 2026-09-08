@@ -18,20 +18,26 @@ This folder is its own Yarn project: `package.json` declares
 is the first step of the client's CI lane, so the suite runs against the versions
 the lock names rather than whatever a fresh install picks.
 
-A consuming application names this repository, the workspace and one commit
+A consuming application names this repository, the workspace and one release tag
 (`"@pathfinder/assistant-client":
-"git+https://github.com/VEuPathDB/ai-assistant-platform.git#workspace=@pathfinder/assistant-client&commit=<sha>"`).
+"git+https://github.com/VEuPathDB/ai-assistant-platform.git#workspace=@pathfinder/assistant-client&tag=v<version>"`).
 Yarn clones the repository, installs it with its own lock, runs `prepack` and
 packs `dist`, so the consumer compiles the built output and needs no install
 here.
 
-`ai` is pinned to `6.0.154` and the peer range stops below `6.0.250`. That
-release changed `resumeStream` so a resumed stream is a fresh response instead of
-a continuation of the assistant message the client already holds, which is the
-opposite of what section 6.1 of `PROTOCOL.md` requires of a turn suspended on a
-durable task: the gap's `data-task-progress` and `data-task-completed` chunks
-belong to the suspended turn's message. Under `ai` 6.0.271 two
-`tests/conformance/resumedTurn.test.ts` cases fail for exactly that reason.
+From `ai` 6.0.250 a resumed stream is seeded from empty state instead of from
+the assistant message the client already holds, so the client rebuilds the
+message the tail continues. `DurableChatTransport` therefore resumes a message
+a turn left open from a cursor before that message's own `start`, drops what the
+tail delivers before it, and opens the next tail itself where the host ended one
+at a `done`. That is what section 6.1 of `PROTOCOL.md` asks of a turn suspended
+on a durable task: the gap's `data-task-progress` and `data-task-completed`
+chunks belong to the suspended turn's message, and a host serves them on a
+second tail. The cursor a replay names comes from the store, which the snapshot
+seeds from its `openMessage`, so a reload never tails from `0`. The peer range
+is `>=6.0.250 <8`, the releases that seed a resume that way;
+`tests/conformance/replayedMessage.test.ts` is the gate, and it fails on
+`ai` 6.0.154.
 
 ## PROTOCOL.md is the contract
 
@@ -45,7 +51,8 @@ Both sides are pinned to it. `assistant-core`'s
 against the chunks the runtime actually emits, so a new chunk kind fails there.
 The client's suite is the **consumer-side gate**: `yarn sync:protocol` reads the
 document into `src/protocol/captured.json`, and `tests/conformance/` fails when
-the capture and the document disagree. A change to `PROTOCOL.md` that neither
+the capture and the document disagree. The sync is an authoring step; the gate
+is the suite that reads the capture back. A change to `PROTOCOL.md` that neither
 side implements fails both.
 
 The document ships inside the runtime package, so an installed consumer reads it
@@ -64,13 +71,14 @@ deployment reads a server it did not build.
 
 ```bash
 yarn install --immutable
-cd packages/assistant-core        && uv sync --frozen && uv run ruff check src tests && uv run ruff format --check src tests && uv run mypy --strict src && uv run pytest tests/unit
-cd packages/assistant-client-ts   && yarn typecheck && yarn lint && yarn format:check && yarn test && yarn build && yarn sync:protocol
+cd packages/assistant-core        && uv sync --frozen && uv run ruff check src tests && uv run ruff format --check src tests && uv run mypy --strict src && uv run pytest && uv run pytest tests/packaging -m wheel --override-ini addopts=''
+cd packages/assistant-client-ts   && yarn typecheck && yarn lint && yarn format:check && yarn test && yarn build
 cd packages/mcp-conformance       && uv sync --frozen && uv run ruff check src tests && uv run mypy --strict src && uv run pytest
 ```
 
-`.github/workflows/ci.yml` runs those three lanes and
-`.pre-commit-config.yaml` carries them as hooks.
+Those three lanes are what `.github/workflows/ci.yml` runs, command for command.
+`.pre-commit-config.yaml` carries the same checks as hooks, and leaves the wheel
+check and the integration half of the runtime suite to CI.
 
 `assistant-core`'s suite runs with **no** application installed; that is what
 makes the boundary an installation fact rather than a lint rule.

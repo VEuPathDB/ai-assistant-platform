@@ -198,8 +198,12 @@ async def probe_annotations(
                     RepeatedCall(
                         tool=tool.name,
                         idempotent=tool.annotation.idempotentHint is True,
-                        first=await call_recorded(session, tool.name, arguments, budget),
-                        second=await call_recorded(session, tool.name, arguments, budget),
+                        first=await call_recorded(
+                            session, tool.name, arguments, budget
+                        ),
+                        second=await call_recorded(
+                            session, tool.name, arguments, budget
+                        ),
                     )
                 )
         if before is not None and account is not None:

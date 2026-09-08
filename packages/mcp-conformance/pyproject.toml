@@ -1,6 +1,6 @@
 [project]
 name = "veupathdb-mcp-conformance"
-version = "0.1.0"
+version = "0.1.1"
 description = "The conformance suite an MCP tool server passes before a VEuPathDB assistant deployment admits it"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -25,8 +25,8 @@ packages = ["src/mcp_conformance"]
 
 [dependency-groups]
 dev = [
-    "mypy>=1.20.0",
-    "ruff==0.15.9",
+    "mypy>=2.3.1",
+    "ruff==0.16.6",
     "starlette>=0.27",
     "uvicorn>=0.31.1",
 ]

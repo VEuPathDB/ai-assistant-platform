@@ -107,7 +107,9 @@ class FixtureState:
 
     def seed(self) -> None:
         for identity in IDENTITY.values():
-            self.notes[f"{identity}-seed"] = Note(owner=identity, text=f"seeded for {identity}")
+            self.notes[f"{identity}-seed"] = Note(
+                owner=identity, text=f"seeded for {identity}"
+            )
 
     def owned_by(self, identity: str) -> list[str]:
         return sorted(key for key, note in self.notes.items() if note.owner == identity)
@@ -172,11 +174,16 @@ def _base_tools() -> list[ToolDict]:
             "inputSchema": _string_argument("subject"),
             "outputSchema": {
                 "type": "object",
-                "properties": {"subject": {"type": "string"}, "lines": {"type": "integer"}},
+                "properties": {
+                    "subject": {"type": "string"},
+                    "lines": {"type": "integer"},
+                },
                 "required": ["subject", "lines"],
             },
             "annotations": _READ,
-            "_meta": {STREAM_PART_META_KEY: {"kind": "data-fixture.summary", "version": 1}},
+            "_meta": {
+                STREAM_PART_META_KEY: {"kind": "data-fixture.summary", "version": 1}
+            },
         },
     ]
 
@@ -258,7 +265,9 @@ def _argument_fault(schema: ToolDict, arguments: dict[str, Any]) -> str | None:
 
 
 def _text(message: str, *, failed: bool = False) -> CallToolResult:
-    return CallToolResult(content=[TextContent(type="text", text=message)], isError=failed)
+    return CallToolResult(
+        content=[TextContent(type="text", text=message)], isError=failed
+    )
 
 
 _STACK_TRACE = (
@@ -404,7 +413,11 @@ def _raise_on_bad_argument(server: Server[Any, Any]) -> None:
 
     async def raising(request: CallToolRequest) -> ServerResult:
         schema = next(
-            (tool["inputSchema"] for tool in _base_tools() if tool["name"] == request.params.name),
+            (
+                tool["inputSchema"]
+                for tool in _base_tools()
+                if tool["name"] == request.params.name
+            ),
             _NO_ARGUMENTS,
         )
         fault = _argument_fault(schema, request.params.arguments or {})
@@ -430,7 +443,9 @@ async def _record_lookup(
     return _text(f"record {record}")
 
 
-async def _note_list(_: Arguments, identity: str, state: FixtureState) -> CallToolResult:
+async def _note_list(
+    _: Arguments, identity: str, state: FixtureState
+) -> CallToolResult:
     return _text(" ".join(state.owned_by(identity)) or "no notes")
 
 
@@ -505,7 +520,9 @@ def build_app(defect: Defect, port: int, state: FixtureState) -> Starlette:
     resource = AnyHttpUrl(f"http://127.0.0.1:{port}/mcp")
 
     async def account(request: Request) -> JSONResponse:
-        presented = request.headers.get("authorization", "").removeprefix("Bearer ").strip()
+        presented = (
+            request.headers.get("authorization", "").removeprefix("Bearer ").strip()
+        )
         identity = IDENTITY.get(presented)
         if identity is None:
             return JSONResponse({"error": "invalid_token"}, status_code=401)

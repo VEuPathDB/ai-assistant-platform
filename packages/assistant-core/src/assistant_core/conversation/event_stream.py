@@ -40,10 +40,15 @@ from pydantic_ai.ui.vercel_ai.response_types import (
 from sqlalchemy import select
 from sqlalchemy.engine import make_url
 
+from assistant_core.conversation.ui_message_reducer import (
+    OpenMessageRef,
+    open_message_of,
+)
 from assistant_core.persistence.models import ConversationEvent
 from assistant_core.platform.config import get_runtime_settings
 from assistant_core.platform.db import async_session_factory
 from assistant_core.platform.logging import get_logger
+from assistant_core.platform.pydantic_base import CamelModel
 
 logger = get_logger(__name__)
 
@@ -213,12 +218,18 @@ async def latest_snapshot_boundary(conversation_id: UUID) -> int:
         return last_done_id
 
 
-async def fetch_snapshot_chunks(
-    conversation_id: UUID,
-) -> tuple[int, list[dict[str, Any]]]:
+class EventsSnapshot(CamelModel):
+    """The completed history a thread serves, and where a tail continues it."""
+
+    chunks: list[dict[str, Any]]
+    cursor: int
+    open_message: OpenMessageRef | None = None
+
+
+async def fetch_snapshot_chunks(conversation_id: UUID) -> EventsSnapshot:
     boundary = await latest_snapshot_boundary(conversation_id)
     if boundary == 0:
-        return 0, []
+        return EventsSnapshot(chunks=[], cursor=0)
     async with async_session_factory() as session:
         rows = (
             await session.scalars(
@@ -231,7 +242,7 @@ async def fetch_snapshot_chunks(
                 .order_by(ConversationEvent.id),
             )
         ).all()
-    chunks: list[dict[str, Any]] = []
+    entries: list[tuple[int, dict[str, Any]]] = []
     for row in rows:
         chunk = row.chunk
         if not isinstance(chunk, dict) or "type" not in chunk:
@@ -240,8 +251,12 @@ async def fetch_snapshot_chunks(
             _CHUNK_ADAPTER.validate_python(chunk)
         except ValidationError:
             continue
-        chunks.append(chunk)
-    return boundary, chunks
+        entries.append((row.id, chunk))
+    return EventsSnapshot(
+        chunks=[chunk for _cursor, chunk in entries],
+        cursor=boundary,
+        open_message=open_message_of(entries),
+    )
 
 
 async def latest_event(

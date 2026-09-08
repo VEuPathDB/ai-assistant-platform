@@ -56,7 +56,7 @@ def assert_clean_pass(result: pytest.RunResult, checks: int) -> None:
     assert result.ret == 0
 
 
-_ACCOUNT_HOOK = '''
+_ACCOUNT_HOOK = """
 import httpx
 
 ACCOUNT_URL = "{url}"
@@ -73,7 +73,7 @@ def pytest_mcp_account_state():
         return list(answer.json()["notes"])
 
     return snapshot
-'''
+"""
 
 
 def account_hook(pytester: pytest.Pytester, server: FixtureServer) -> None:

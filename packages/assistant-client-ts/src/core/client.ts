@@ -1,6 +1,7 @@
-import { type ProtocolChunk, parseChunk } from "./chunks.ts";
+import { type ProtocolChunk, asRecord, parseChunk } from "./chunks.ts";
 import {
   type CursorStore,
+  type OpenMessage,
   memoryCursorStore,
   recordFrameCursor,
   tailUrl,
@@ -43,17 +44,27 @@ export interface TailOptions {
 
 const NO_TURN_IN_FLIGHT = 204;
 
+function readOpenMessage(value: unknown): OpenMessage | undefined {
+  const record = asRecord(value);
+  if (record === undefined) return undefined;
+  const messageId = record["messageId"];
+  const after = record["after"];
+  if (typeof messageId !== "string" || typeof after !== "number") return undefined;
+  return { messageId, after };
+}
+
 function readSnapshot(body: unknown): Snapshot {
-  if (typeof body !== "object" || body === null) {
+  const record = asRecord(body);
+  if (record === undefined) {
     throw new Error("assistant read failed: body is not a snapshot");
   }
-  const record = body as Record<string, unknown>;
   const chunks = record["chunks"];
   const cursor = record["cursor"];
   if (!Array.isArray(chunks) || typeof cursor !== "number") {
     throw new Error("assistant read failed: body is not a snapshot");
   }
-  return { chunks, cursor };
+  const openMessage = readOpenMessage(record["openMessage"]);
+  return { chunks, cursor, ...(openMessage === undefined ? {} : { openMessage }) };
 }
 
 /** A client for one assistant runtime, built from the wire protocol alone. */
@@ -92,6 +103,7 @@ export class AssistantClient {
     if (snapshot.cursor > this.cursors.read(threadId)) {
       this.cursors.write(threadId, snapshot.cursor);
     }
+    this.cursors.writeOpenMessage(threadId, snapshot.openMessage);
     return { messages: reduceSnapshot(snapshot.chunks), cursor: snapshot.cursor };
   }
 
@@ -118,9 +130,9 @@ export class AssistantClient {
     body: ReadableStream<Uint8Array>,
   ): AsyncGenerator<ProtocolChunk> {
     for await (const frame of readFrames(body, { allowTruncatedTail: true })) {
-      recordFrameCursor(this.cursors, threadId, frame);
-      if (isComment(frame) || isDone(frame) || frame.data === undefined) continue;
-      const chunk = parseChunk(frame.data);
+      if (isComment(frame) || frame.data === undefined) continue;
+      const chunk = isDone(frame) ? undefined : parseChunk(frame.data);
+      recordFrameCursor(this.cursors, threadId, frame, chunk);
       if (chunk !== undefined) yield chunk;
     }
   }
