@@ -17,6 +17,8 @@ OWNED_TABLES = (
     "messages",
     "conversation_events",
     "memory_tombstones",
+    "chat_turn_cancellations",
+    "monthly_usage",
 )
 
 

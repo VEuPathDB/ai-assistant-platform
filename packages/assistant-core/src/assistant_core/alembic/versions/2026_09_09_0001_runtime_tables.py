@@ -11,8 +11,6 @@ from alembic import op
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 
-from assistant_core.migrate import OWNED_TABLES
-
 revision: str = "2026_09_09_0001"
 down_revision: str | Sequence[str] | None = None
 branch_labels: str | Sequence[str] | None = None
@@ -23,10 +21,19 @@ _ASSISTANT_ID_LENGTH = 64
 _DEFAULT_APPLICATION_ID = "default"
 _DEFAULT_ASSISTANT_ID = "default"
 
+# The tables this revision creates. A revision is history: the set stays as it
+# was when the revision was written, while OWNED_TABLES grows with the chain.
+CREATES = (
+    "conversations",
+    "messages",
+    "conversation_events",
+    "memory_tombstones",
+)
+
 
 def _existing_tables() -> frozenset[str]:
     inspector = sa.inspect(op.get_bind())
-    return frozenset(name for name in OWNED_TABLES if inspector.has_table(name))
+    return frozenset(name for name in CREATES if inspector.has_table(name))
 
 
 def upgrade() -> None:
@@ -34,12 +41,12 @@ def upgrade() -> None:
     # only records that the chain stands at its baseline. A database that holds
     # some of them is a state neither chain produces, so it is refused.
     present = _existing_tables()
-    if present == frozenset(OWNED_TABLES):
+    if present == frozenset(CREATES):
         return
     if present:
         msg = (
             "the database holds part of the runtime schema: present "
-            f"{sorted(present)}, missing {sorted(frozenset(OWNED_TABLES) - present)}"
+            f"{sorted(present)}, missing {sorted(frozenset(CREATES) - present)}"
         )
         raise RuntimeError(msg)
     op.create_table(

@@ -2,6 +2,31 @@
 
 ## 2026-09-09
 
+The runtime took the budget, the ownership rule and the stop protocol.
+`assistant_core.quota` counts spend per user per application into
+`monthly_usage` and reports a period snapshot against a limit the caller
+supplies; `assistant_core.pricing` reads one headline price pair from the
+packaged snapshot, at an instant the caller may name. `assistant_core.conversation.authz` answers ownership as
+user plus application, over a `ConversationLookup` protocol whose one member is
+`get_by_id`. The generic `ConversationRepository` that creates, reads, lists,
+renames, dismisses, restores and deletes a thread satisfies it, and so does a
+host's own store.
+`assistant_core.conversation.cancellation` writes the stop row the running
+worker polls, and takes `release_dead_turn` from the host because the runtime
+owns no job queue. The refusals are `AssistantCoreError` subclasses in
+`assistant_core.errors`, so no HTTP status is named here.
+
+`chat_turn_cancellations` and `monthly_usage` joined the chain as revision
+`2026_09_09_0002`, which no-ops on a database whose host chain built both and
+refuses one that holds only one of them. `OWNED_TABLES` is six names now, and
+each revision freezes the tables it created in its own `CREATES`, so the two
+stay reconciled by a test rather than by one shared literal that history would
+have to follow.
+
+Three decisions are new: the runtime counts the cost and the host sets the
+limit; ownership is answered here and the status code is the host's; a stop is
+a row and the host releases the job.
+
 The runtime got a migration chain of its own: `assistant_core/alembic/`,
 the version table `alembic_version_assistant_core`, and
 `assistant_core.migrate.upgrade_head(connection)` for a host that runs it

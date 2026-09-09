@@ -19,6 +19,9 @@ Choices made deliberately, each naming the alternative that was rejected and why
 - [The admitted tool sources are installed by the host](admitted-tool-sources-are-installed-by-the-host.md) - admission is a value a host installs once, never a field parsed from the environment
 - [The runtime's stored defaults name no product](the-runtime-defaults-name-no-product.md) - the application and assistant defaults are `default`, and a host stamps its own id
 - [Input screening is configured by the host](input-screening-is-configured-by-the-host.md) - the model directory is a constructor argument, the rejection is a plain error, and the ONNX runtime is an optional extra
+- [Ownership is answered here and the status code is the host's](ownership-is-answered-here-and-the-status-code-is-the-hosts.md) - a thread belongs to a user under one application, and the refusal is a plain error the host maps
+- [A stop is a row, and the host releases the job](a-stop-is-a-row-and-the-host-releases-the-job.md) - the running worker polls a durable row, and ending a dead worker's turn is a callable the host passes in
+- [The runtime counts the cost and the host sets the limit](the-runtime-counts-the-cost-and-the-host-sets-the-limit.md) - spend is accumulated per user per application, and the budget arrives as an argument
 
 ## Persistence
 

@@ -49,33 +49,60 @@ is `>=6.0.250 <8`, the releases that seed a resume that way;
 
 ## The runtime carries its own migration chain
 
-`assistant-core` owns `conversations`, `messages`, `conversation_events` and
-`memory_tombstones`, and ships the alembic history that creates them under
-`src/assistant_core/alembic/`, recording its position in
-`alembic_version_assistant_core`. A host application's chain uses its own
-version table, so the two share a database without touching each other.
+`assistant-core` owns `conversations`, `messages`, `conversation_events`,
+`memory_tombstones`, `chat_turn_cancellations` and `monthly_usage`, and ships
+the alembic history that creates them under `src/assistant_core/alembic/`,
+recording its position in `alembic_version_assistant_core`. A host
+application's chain uses its own version table, so the two share a database
+without touching each other.
 
 ```bash
-uv run python -m assistant_core.migrate     # bring the four tables to head
+uv run python -m assistant_core.migrate     # bring the runtime's tables to head
 ```
 
 The runtime does not migrate at start. A host that embeds this package as a
 library runs `assistant_core.migrate.upgrade_head(connection)` on its own
 connection, after its own chain, because the runtime's tables name host tables
-in foreign keys. A database whose host chain already created all four tables
-needs no `alembic stamp`: the baseline revision asks the inspector first and
-records the position without rebuilding anything. A database holding some of the
-four is refused, naming which are present and which are missing.
+in foreign keys. A database whose host chain already created the tables a
+revision would build needs no `alembic stamp`: each revision asks the inspector
+first and records the position without rebuilding anything. A database holding
+some of one revision's tables is refused, naming which are present and which
+are missing.
 
-`assistant_core.migrate.OWNED_TABLES` is the four names, and
+`assistant_core.migrate.OWNED_TABLES` is the six names, and
 `assistant_core.migrate.include_object` is the alembic filter that keeps them. A
 host whose own `env.py` maps its tables on the same declarative base uses that
 filter's complement, so neither chain autogenerates a revision for the other's
-tables.
+tables. A revision names the tables it created in its own `CREATES`, which does
+not move when the distribution grows; a test holds the union of those to
+`OWNED_TABLES`.
 
 The runtime declares one host table it does not own. A host supplies `users`
 with a uuid `id`; until the durable-task subsystem moves, it also supplies
 `background_tasks` with a uuid `id`. Nothing else is read from either.
+
+## What a host supplies to the runtime
+
+The runtime holds the rules that read its own rows and hands back the decisions
+a product makes. Four seams carry that split.
+
+`assistant_core.quota` counts spend into `monthly_usage` per user per
+application, and `get_current(session, user_id, limit_usd=...)` takes the
+budget as an argument: the runtime stores no limit and reads no user record.
+What a caller at a hundred percent is told is the host's.
+
+`assistant_core.conversation.cancellation` writes the stop row a running worker
+polls, and takes `release_dead_turn` so the host can fail the job of a worker
+that is already gone. The runtime owns no job queue.
+
+`assistant_core.conversation.authz` answers ownership over a
+`ConversationLookup`, a protocol whose one member is `get_by_id`. A host passes
+the thread store it already holds and inherits nothing from the runtime.
+
+`assistant_core.errors.AssistantCoreError` is the base of every refusal the
+runtime raises across that surface (`ConversationNotFoundError`,
+`ConversationForbiddenError`, `TurnStillRunningError`). None of them names an
+HTTP status; a host maps them onto its own transport.
 
 ## PROTOCOL.md is the contract
 

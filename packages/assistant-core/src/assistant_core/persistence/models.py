@@ -1,23 +1,28 @@
-"""The tables the runtime reads and writes: threads, turns and the chunk log.
+"""The tables the runtime reads and writes: threads, turns, chunks, stops and cost.
 
 The declarative base is shared: a host application maps its own tables on it,
 so a foreign key between a host table and a runtime table resolves.
 """
 
-from datetime import datetime
+from datetime import date, datetime
+from decimal import Decimal
 from typing import Any, ClassVar
 from uuid import UUID, uuid4
 
 from sqlalchemy import (
     JSON,
+    BigInteger,
     CheckConstraint,
+    Date,
     DateTime,
     ForeignKey,
     Index,
     Integer,
+    Numeric,
     String,
     UniqueConstraint,
     func,
+    text,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
@@ -242,4 +247,63 @@ class MemoryTombstoneRow(Base):
             "content_hash",
             name="uq_tombstones_user_app_kind_hash",
         ),
+    )
+
+
+class ChatTurnCancellation(Base):
+    """A stop request for one turn, which the worker running it polls."""
+
+    __tablename__ = "chat_turn_cancellations"
+
+    conversation_id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey("conversations.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    turn_id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True),
+        primary_key=True,
+    )
+    requested_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    )
+
+
+class MonthlyUsage(Base):
+    """Accumulated token and cost usage for one application of one user, per month.
+
+    period_start is always the first UTC day of the month. Accumulation is an
+    upsert on the user, the application and the period.
+    """
+
+    __tablename__ = "monthly_usage"
+    __table_args__ = (
+        UniqueConstraint(
+            "user_id",
+            "application_id",
+            "period_start",
+            name="monthly_usage_user_app_period_key",
+        ),
+        Index("monthly_usage_user_idx", "user_id"),
+    )
+
+    id: Mapped[UUID] = mapped_column(GUID(), primary_key=True, default=uuid4)
+    user_id: Mapped[UUID] = mapped_column(
+        GUID(), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    application_id: Mapped[str] = application_id_column()
+    period_start: Mapped[date] = mapped_column(Date, nullable=False)
+    total_cost_usd: Mapped[Decimal] = mapped_column(
+        Numeric(12, 6), nullable=False, server_default=text("0")
+    )
+    total_tokens: Mapped[int] = mapped_column(
+        BigInteger, nullable=False, server_default=text("0")
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
     )

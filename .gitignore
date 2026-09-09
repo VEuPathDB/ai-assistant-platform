@@ -3,3 +3,9 @@ node_modules/
 !.yarn/releases
 !.yarn/plugins
 dist/
+__pycache__/
+*.pyc
+.venv/
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/

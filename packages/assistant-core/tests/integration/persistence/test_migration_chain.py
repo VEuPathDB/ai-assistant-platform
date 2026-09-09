@@ -1,6 +1,7 @@
 """The chain this package ships builds the schema its models declare."""
 
 from collections.abc import AsyncGenerator
+from decimal import Decimal
 from uuid import UUID, uuid4
 
 import pytest
@@ -20,14 +21,16 @@ from tests._host_schema import HOST_BACKGROUND_TASKS, HOST_USERS
 from assistant_core.migrate import VERSION_TABLE, include_object, upgrade_head
 from assistant_core.persistence.models import (
     Base,
+    ChatTurnCancellation,
     Conversation,
     ConversationEvent,
     MemoryTombstoneRow,
     Message,
+    MonthlyUsage,
 )
 from assistant_core.platform.context import DEFAULT_APPLICATION_ID
 
-BASELINE = "2026_09_09_0001"
+HEAD = "2026_09_09_0002"
 HOST_TABLES = [HOST_USERS, HOST_BACKGROUND_TASKS]
 
 _STAMP = Table(
@@ -49,6 +52,14 @@ _NEW_EVENT = text(
 _NEW_TOMBSTONE = text(
     "INSERT INTO memory_tombstones (user_id, kind, content_hash, reason)"
     " VALUES (:user_id, 'case', 'abc', 'user_deleted')"
+)
+_NEW_STOP = text(
+    "INSERT INTO chat_turn_cancellations (conversation_id, turn_id)"
+    " VALUES (:conversation_id, :turn_id)"
+)
+_NEW_USAGE = text(
+    "INSERT INTO monthly_usage (id, user_id, period_start)"
+    " VALUES (:id, :user_id, DATE '2026-09-01')"
 )
 
 
@@ -142,7 +153,7 @@ async def test_the_chain_records_its_position_in_its_own_version_table(
     async with chain_engine.connect() as connection:
         stamped = await connection.execute(select(_STAMP.c.version_num))
 
-    assert list(stamped.scalars()) == [BASELINE]
+    assert list(stamped.scalars()) == [HEAD]
 
 
 async def test_a_thread_written_on_the_chain_schema_reads_back(
@@ -170,12 +181,19 @@ async def test_a_thread_written_on_the_chain_schema_reads_back(
             },
         )
         await session.execute(_NEW_TOMBSTONE, {"user_id": str(user_id)})
+        await session.execute(
+            _NEW_STOP,
+            {"conversation_id": str(conversation_id), "turn_id": str(uuid4())},
+        )
+        await session.execute(_NEW_USAGE, {"id": str(uuid4()), "user_id": str(user_id)})
         await session.commit()
 
         thread = (await session.execute(select(Conversation))).scalar_one()
         message = (await session.execute(select(Message))).scalar_one()
         event = (await session.execute(select(ConversationEvent))).scalar_one()
         tombstone = (await session.execute(select(MemoryTombstoneRow))).scalar_one()
+        stop = (await session.execute(select(ChatTurnCancellation))).scalar_one()
+        usage = (await session.execute(select(MonthlyUsage))).scalar_one()
 
     assert thread.assistant_id == "default"
     assert thread.application_id == DEFAULT_APPLICATION_ID
@@ -189,6 +207,11 @@ async def test_a_thread_written_on_the_chain_schema_reads_back(
     assert tombstone.application_id == DEFAULT_APPLICATION_ID
     assert tombstone.deleted_at is not None
     assert isinstance(thread.user_id, UUID)
+    assert stop.requested_at is not None
+    assert usage.application_id == DEFAULT_APPLICATION_ID
+    assert usage.total_cost_usd == Decimal(0)
+    assert usage.total_tokens == 0
+    assert usage.updated_at is not None
 
 
 async def test_the_chain_leaves_tables_a_host_chain_already_created(
@@ -206,7 +229,7 @@ async def test_the_chain_leaves_tables_a_host_chain_already_created(
             stamped = await connection.execute(select(_STAMP.c.version_num))
             survivors = await connection.execute(select(HOST_USERS.c.id))
 
-            assert list(stamped.scalars()) == [BASELINE]
+            assert list(stamped.scalars()) == [HEAD]
             assert list(survivors.scalars()) == [kept]
     finally:
         await engine.dispose()
@@ -254,3 +277,71 @@ async def test_autogenerate_leaves_a_table_this_chain_does_not_own(
         ]
     finally:
         await engine.dispose()
+
+
+async def test_the_chain_leaves_the_stop_and_cost_tables_a_host_already_built(
+    db_engine: AsyncEngine,
+) -> None:
+    """A host chain that built all six tables is stamped at the head, not rebuilt."""
+    engine = await _fresh_database(db_engine, "assistant_core_stop_cost")
+    try:
+        async with engine.begin() as connection:
+            await connection.run_sync(Base.metadata.create_all)
+            await connection.run_sync(_migrate)
+        async with engine.connect() as connection:
+            stamped = await connection.execute(select(_STAMP.c.version_num))
+
+            assert list(stamped.scalars()) == [HEAD]
+    finally:
+        await engine.dispose()
+
+
+async def test_the_chain_refuses_a_database_that_holds_one_of_the_two_new_tables(
+    db_engine: AsyncEngine,
+) -> None:
+    """A half-built pair is named, not stamped over."""
+    engine = await _fresh_database(db_engine, "assistant_core_half_pair")
+    try:
+        async with engine.begin() as connection:
+            await connection.run_sync(Base.metadata.create_all)
+            await connection.exec_driver_sql("DROP TABLE monthly_usage")
+            with pytest.raises(RuntimeError) as caught:
+                await connection.run_sync(_migrate)
+
+        assert "present ['chat_turn_cancellations']" in str(caught.value)
+        assert "missing ['monthly_usage']" in str(caught.value)
+    finally:
+        await engine.dispose()
+
+
+async def test_a_stop_row_goes_when_its_thread_does(
+    chain_engine: AsyncEngine,
+) -> None:
+    """The cascade the chain wrote leaves no stop request behind a deleted thread."""
+    user_id, conversation_id = uuid4(), uuid4()
+    maker = async_sessionmaker(
+        chain_engine, class_=AsyncSession, expire_on_commit=False
+    )
+    async with maker() as session:
+        await session.execute(insert(HOST_USERS).values(id=user_id))
+        await session.execute(
+            _NEW_THREAD, {"id": str(conversation_id), "user_id": str(user_id)}
+        )
+        await session.execute(
+            _NEW_STOP,
+            {"conversation_id": str(conversation_id), "turn_id": str(uuid4())},
+        )
+        await session.commit()
+        await session.execute(
+            text("DELETE FROM conversations WHERE id = :id"),
+            {"id": str(conversation_id)},
+        )
+        await session.commit()
+
+        left = await session.execute(
+            select(ChatTurnCancellation).where(
+                ChatTurnCancellation.conversation_id == conversation_id,
+            ),
+        )
+
+    assert list(left.scalars()) == []
