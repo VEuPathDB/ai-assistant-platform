@@ -7,6 +7,7 @@ from assistant_core.migrate import OWNED_TABLES, alembic_config, include_object
 
 BASELINE = "2026_09_09_0001"
 STOP_AND_COST = "2026_09_09_0002"
+SCRATCHPAD = "2026_09_09_0003"
 
 
 def _revisions() -> list[Script]:
@@ -43,6 +44,14 @@ def test_the_filter_leaves_every_other_kind_to_its_table() -> None:
 
 def test_the_stop_and_cost_revision_also_refuses_to_drop_its_tables() -> None:
     revision = ScriptDirectory.from_config(alembic_config()).get_revision(STOP_AND_COST)
+    assert revision is not None
+
+    with pytest.raises(NotImplementedError, match="host chain built"):
+        revision.module.downgrade()
+
+
+def test_the_scratchpad_revision_also_refuses_to_drop_its_tables() -> None:
+    revision = ScriptDirectory.from_config(alembic_config()).get_revision(SCRATCHPAD)
     assert revision is not None
 
     with pytest.raises(NotImplementedError, match="host chain built"):

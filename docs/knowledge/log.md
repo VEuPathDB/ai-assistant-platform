@@ -2,6 +2,45 @@
 
 ## 2026-09-09
 
+The scratchpad moved in whole: `assistant_core.scratchpad` holds the note
+models, the ids, the notebook that opens one session per call, the nine tools,
+the toolset that hides what an empty scratchpad cannot use and breaks a read
+streak, the rendered index and the compaction run.
+`assistant_core.persistence.repositories.scratchpad.ScratchpadRepository` owns
+the rows, including the fork copy and the revert cut, so a host never writes a
+statement against the runtime's tables. `scratchpad_notes` and
+`scratchpad_compactions` joined the chain as revision `2026_09_09_0003`, and
+`OWNED_TABLES` is eight names.
+
+Two seams keep the product out. `render_scratchpad` takes a
+`ScratchpadGuidance` of two strings, so what the model is told to write down is
+the host's sentence and the runtime's default is empty. `compact_scratchpad`
+takes the compactor agent, so no model id and no rewriting instruction lives
+here; the runtime keeps the gate, the input rendering, the token trim, the cost
+and the transaction. A failed compaction run now reaches the caller instead of
+being swallowed twice.
+
+The tools no longer name another distribution's tool-error type: a turn with no
+thread returns `ScratchpadUnavailable`, the same three fields under the same
+`NOT_FOUND` code. `data-scratchpad-updated` is unchanged; the runtime already
+built that chunk and now owns what emits it.
+
+Two decisions are new: the scratchpad is the runtime's and the coaching is the
+host's; the compactor agent is supplied by the host.
+
+The scratchpad seams took their review round:
+
+- `ScratchpadGuidance` carries a third string, `promote`.
+  `build_scratchpad_toolset(guidance=...)` appends it to the description of
+  `promote_to_memory`, which is the text the model reads when it decides what
+  is worth keeping. An empty string appends nothing.
+- `compact_scratchpad` takes a factory for the compactor agent rather than a
+  built one, and calls it once after both ceilings are read. A host builds an
+  agent per compaction, not per turn.
+- The read-streak filter is private again as `_read_tools_to_hide`. Its only
+  caller is the toolset's own prepare step, and the behaviour is proved through
+  the tools a turn is offered.
+
 The runtime took the budget, the ownership rule and the stop protocol.
 `assistant_core.quota` counts spend per user per application into
 `monthly_usage` and reports a period snapshot against a limit the caller

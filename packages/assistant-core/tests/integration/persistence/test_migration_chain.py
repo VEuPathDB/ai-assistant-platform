@@ -9,6 +9,7 @@ from alembic.autogenerate import compare_metadata
 from alembic.migration import MigrationContext
 from sqlalchemy import Column, MetaData, String, Table, insert, inspect, select, text
 from sqlalchemy.engine import Connection
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
@@ -27,10 +28,12 @@ from assistant_core.persistence.models import (
     MemoryTombstoneRow,
     Message,
     MonthlyUsage,
+    ScratchpadCompaction,
+    ScratchpadNote,
 )
 from assistant_core.platform.context import DEFAULT_APPLICATION_ID
 
-HEAD = "2026_09_09_0002"
+HEAD = "2026_09_09_0003"
 HOST_TABLES = [HOST_USERS, HOST_BACKGROUND_TASKS]
 
 _STAMP = Table(
@@ -60,6 +63,16 @@ _NEW_STOP = text(
 _NEW_USAGE = text(
     "INSERT INTO monthly_usage (id, user_id, period_start)"
     " VALUES (:id, :user_id, DATE '2026-09-01')"
+)
+_NEW_NOTE = text(
+    "INSERT INTO scratchpad_notes"
+    " (id, conversation_id, title, summary, body, body_tokens)"
+    " VALUES (:id, :conversation_id, 'a title', 'a summary', 'a body', 1)"
+)
+_NEW_COMPACTION = text(
+    "INSERT INTO scratchpad_compactions (conversation_id, before_count,"
+    " after_count, before_tokens, after_tokens, model_id, trigger_reason)"
+    " VALUES (:conversation_id, 9, 2, 900, 120, 'openai:gpt-4.1-mini', 'count')"
 )
 
 
@@ -186,6 +199,14 @@ async def test_a_thread_written_on_the_chain_schema_reads_back(
             {"conversation_id": str(conversation_id), "turn_id": str(uuid4())},
         )
         await session.execute(_NEW_USAGE, {"id": str(uuid4()), "user_id": str(user_id)})
+        await session.execute(
+            _NEW_NOTE,
+            {"id": "n-abc123", "conversation_id": str(conversation_id)},
+        )
+        await session.execute(
+            _NEW_COMPACTION,
+            {"conversation_id": str(conversation_id)},
+        )
         await session.commit()
 
         thread = (await session.execute(select(Conversation))).scalar_one()
@@ -194,6 +215,8 @@ async def test_a_thread_written_on_the_chain_schema_reads_back(
         tombstone = (await session.execute(select(MemoryTombstoneRow))).scalar_one()
         stop = (await session.execute(select(ChatTurnCancellation))).scalar_one()
         usage = (await session.execute(select(MonthlyUsage))).scalar_one()
+        note = (await session.execute(select(ScratchpadNote))).scalar_one()
+        compaction = (await session.execute(select(ScratchpadCompaction))).scalar_one()
 
     assert thread.assistant_id == "default"
     assert thread.application_id == DEFAULT_APPLICATION_ID
@@ -212,6 +235,12 @@ async def test_a_thread_written_on_the_chain_schema_reads_back(
     assert usage.total_cost_usd == Decimal(0)
     assert usage.total_tokens == 0
     assert usage.updated_at is not None
+    assert note.tags == []
+    assert note.pinned is False
+    assert note.created_at is not None
+    assert note.updated_at is not None
+    assert compaction.cost_usd == Decimal(0)
+    assert compaction.triggered_at is not None
 
 
 async def test_the_chain_leaves_tables_a_host_chain_already_created(
@@ -304,6 +333,8 @@ async def test_the_chain_refuses_a_database_that_holds_one_of_the_two_new_tables
     try:
         async with engine.begin() as connection:
             await connection.run_sync(Base.metadata.create_all)
+            await connection.exec_driver_sql("DROP TABLE scratchpad_notes")
+            await connection.exec_driver_sql("DROP TABLE scratchpad_compactions")
             await connection.exec_driver_sql("DROP TABLE monthly_usage")
             with pytest.raises(RuntimeError) as caught:
                 await connection.run_sync(_migrate)
@@ -345,3 +376,91 @@ async def test_a_stop_row_goes_when_its_thread_does(
         )
 
     assert list(left.scalars()) == []
+
+
+async def test_the_chain_refuses_a_database_that_holds_one_scratchpad_table(
+    db_engine: AsyncEngine,
+) -> None:
+    """The scratchpad pair is refused half-built, the way the others are."""
+    engine = await _fresh_database(db_engine, "assistant_core_half_scratchpad")
+    try:
+        async with engine.begin() as connection:
+            await connection.run_sync(Base.metadata.create_all)
+            await connection.exec_driver_sql("DROP TABLE scratchpad_compactions")
+            with pytest.raises(RuntimeError) as caught:
+                await connection.run_sync(_migrate)
+
+        assert "present ['scratchpad_notes']" in str(caught.value)
+        assert "missing ['scratchpad_compactions']" in str(caught.value)
+    finally:
+        await engine.dispose()
+
+
+async def test_a_note_goes_when_its_thread_does(
+    chain_engine: AsyncEngine,
+) -> None:
+    """The cascade the chain wrote leaves no note behind a deleted thread."""
+    user_id, conversation_id = uuid4(), uuid4()
+    maker = async_sessionmaker(
+        chain_engine, class_=AsyncSession, expire_on_commit=False
+    )
+    async with maker() as session:
+        await session.execute(insert(HOST_USERS).values(id=user_id))
+        await session.execute(
+            _NEW_THREAD, {"id": str(conversation_id), "user_id": str(user_id)}
+        )
+        await session.execute(
+            _NEW_NOTE,
+            {"id": "n-cascade", "conversation_id": str(conversation_id)},
+        )
+        await session.execute(
+            _NEW_COMPACTION,
+            {"conversation_id": str(conversation_id)},
+        )
+        await session.commit()
+        await session.execute(
+            text("DELETE FROM conversations WHERE id = :id"),
+            {"id": str(conversation_id)},
+        )
+        await session.commit()
+
+        notes = await session.execute(
+            select(ScratchpadNote).where(
+                ScratchpadNote.conversation_id == conversation_id,
+            ),
+        )
+        compactions = await session.execute(
+            select(ScratchpadCompaction).where(
+                ScratchpadCompaction.conversation_id == conversation_id,
+            ),
+        )
+
+    assert list(notes.scalars()) == []
+    assert list(compactions.scalars()) == []
+
+
+async def test_the_chain_refuses_a_reason_the_gate_cannot_produce(
+    chain_engine: AsyncEngine,
+) -> None:
+    """The check constraint the revision wrote holds at the database."""
+    user_id, conversation_id = uuid4(), uuid4()
+    maker = async_sessionmaker(
+        chain_engine, class_=AsyncSession, expire_on_commit=False
+    )
+    async with maker() as session:
+        await session.execute(insert(HOST_USERS).values(id=user_id))
+        await session.execute(
+            _NEW_THREAD, {"id": str(conversation_id), "user_id": str(user_id)}
+        )
+        await session.commit()
+        with pytest.raises(IntegrityError):
+            await session.execute(
+                text(
+                    "INSERT INTO scratchpad_compactions (conversation_id,"
+                    " before_count, after_count, before_tokens, after_tokens,"
+                    " model_id, trigger_reason)"
+                    " VALUES (:conversation_id, 1, 1, 1, 1, 'm', 'sometimes')"
+                ),
+                {"conversation_id": str(conversation_id)},
+            )
+        await session.rollback()

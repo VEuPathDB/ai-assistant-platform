@@ -19,6 +19,8 @@ OWNED_TABLES = (
     "memory_tombstones",
     "chat_turn_cancellations",
     "monthly_usage",
+    "scratchpad_notes",
+    "scratchpad_compactions",
 )
 
 

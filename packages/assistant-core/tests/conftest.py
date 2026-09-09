@@ -127,7 +127,8 @@ async def db_cleaner(db_engine: AsyncEngine) -> AsyncGenerator[None]:
     async with db_engine.begin() as conn:
         await conn.exec_driver_sql(
             "TRUNCATE TABLE memory_tombstones, monthly_usage, "
-            "chat_turn_cancellations, conversation_events, messages, "
+            "chat_turn_cancellations, scratchpad_notes, "
+            "scratchpad_compactions, conversation_events, messages, "
             "conversations, users RESTART IDENTITY CASCADE"
         )
         # The store tables exist only after a memory test creates them.

@@ -1,4 +1,5 @@
-"""The tables the runtime reads and writes: threads, turns, chunks, stops and cost.
+"""The tables the runtime reads and writes: threads, turns, chunks, stops,
+cost and the scratchpad.
 
 The declarative base is shared: a host application maps its own tables on it,
 so a foreign key between a host table and a runtime table resolves.
@@ -12,19 +13,23 @@ from uuid import UUID, uuid4
 from sqlalchemy import (
     JSON,
     BigInteger,
+    Boolean,
     CheckConstraint,
+    Computed,
     Date,
     DateTime,
     ForeignKey,
+    Identity,
     Index,
     Integer,
     Numeric,
     String,
+    Text,
     UniqueConstraint,
     func,
     text,
 )
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.dialects.postgresql import JSONB, TSVECTOR
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.engine import Dialect
 from sqlalchemy.orm import DeclarativeBase, Mapped, MappedColumn, mapped_column
@@ -307,3 +312,118 @@ class MonthlyUsage(Base):
         onupdate=func.now(),
         nullable=False,
     )
+
+
+_NOTE_FTS = (
+    "setweight(to_tsvector('english', coalesce(title, '')), 'A') "
+    "|| setweight(to_tsvector('english', coalesce(summary, '')), 'B') "
+    "|| setweight(to_tsvector('english', coalesce(body, '')), 'C')"
+)
+
+
+class ScratchpadNote(Base):
+    """One note an agent wrote for itself, scoped to a thread."""
+
+    __tablename__ = "scratchpad_notes"
+    __table_args__ = (
+        Index(
+            "scratchpad_notes_conv_idx",
+            "conversation_id",
+            text("pinned DESC"),
+            text("created_at DESC"),
+        ),
+        Index(
+            "scratchpad_notes_fts_idx",
+            "fts",
+            postgresql_using="gin",
+        ),
+        Index(
+            "scratchpad_notes_tags_idx",
+            "tags",
+            postgresql_using="gin",
+            postgresql_ops={"tags": "jsonb_path_ops"},
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(Text, primary_key=True)
+    conversation_id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey("conversations.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    title: Mapped[str] = mapped_column(Text, nullable=False)
+    summary: Mapped[str] = mapped_column(Text, nullable=False)
+    body: Mapped[str] = mapped_column(Text, nullable=False)
+    tags: Mapped[list[str]] = mapped_column(
+        JSONB,
+        nullable=False,
+        default=list,
+        server_default="[]",
+    )
+    pinned: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default="false",
+    )
+    body_tokens: Mapped[int] = mapped_column(Integer, nullable=False)
+    fts: Mapped[str] = mapped_column(
+        TSVECTOR,
+        Computed(_NOTE_FTS, persisted=True),
+        nullable=False,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+
+class ScratchpadCompaction(Base):
+    """What one compaction run started from, ended at and cost."""
+
+    __tablename__ = "scratchpad_compactions"
+    __table_args__ = (
+        CheckConstraint(
+            "trigger_reason IN ('count', 'tokens', 'both')",
+            name="ck_scratchpad_compactions_trigger_reason",
+        ),
+        Index(
+            "scratchpad_compactions_conv_idx",
+            "conversation_id",
+            text("triggered_at DESC"),
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(
+        BigInteger,
+        Identity(always=False),
+        primary_key=True,
+    )
+    conversation_id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey("conversations.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    triggered_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    )
+    before_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    after_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    before_tokens: Mapped[int] = mapped_column(Integer, nullable=False)
+    after_tokens: Mapped[int] = mapped_column(Integer, nullable=False)
+    model_id: Mapped[str] = mapped_column(Text, nullable=False)
+    cost_usd: Mapped[Decimal] = mapped_column(
+        Numeric(precision=12, scale=6),
+        nullable=False,
+        server_default="0",
+    )
+    trigger_reason: Mapped[str] = mapped_column(Text, nullable=False)

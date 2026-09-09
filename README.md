@@ -50,7 +50,8 @@ is `>=6.0.250 <8`, the releases that seed a resume that way;
 ## The runtime carries its own migration chain
 
 `assistant-core` owns `conversations`, `messages`, `conversation_events`,
-`memory_tombstones`, `chat_turn_cancellations` and `monthly_usage`, and ships
+`memory_tombstones`, `chat_turn_cancellations`, `monthly_usage`,
+`scratchpad_notes` and `scratchpad_compactions`, and ships
 the alembic history that creates them under `src/assistant_core/alembic/`,
 recording its position in `alembic_version_assistant_core`. A host
 application's chain uses its own version table, so the two share a database
@@ -69,7 +70,7 @@ first and records the position without rebuilding anything. A database holding
 some of one revision's tables is refused, naming which are present and which
 are missing.
 
-`assistant_core.migrate.OWNED_TABLES` is the six names, and
+`assistant_core.migrate.OWNED_TABLES` is the eight names, and
 `assistant_core.migrate.include_object` is the alembic filter that keeps them. A
 host whose own `env.py` maps its tables on the same declarative base uses that
 filter's complement, so neither chain autogenerates a revision for the other's
@@ -84,7 +85,7 @@ with a uuid `id`; until the durable-task subsystem moves, it also supplies
 ## What a host supplies to the runtime
 
 The runtime holds the rules that read its own rows and hands back the decisions
-a product makes. Four seams carry that split.
+a product makes. Six seams carry that split.
 
 `assistant_core.quota` counts spend into `monthly_usage` per user per
 application, and `get_current(session, user_id, limit_usd=...)` takes the
@@ -98,6 +99,20 @@ that is already gone. The runtime owns no job queue.
 `assistant_core.conversation.authz` answers ownership over a
 `ConversationLookup`, a protocol whose one member is `get_by_id`. A host passes
 the thread store it already holds and inherits nothing from the runtime.
+
+`assistant_core.scratchpad.rendering.render_scratchpad` draws a thread's note
+index and appends a `ScratchpadGuidance`, three strings the host writes: what to
+start noting on an empty scratchpad, what to do before the turn ends on a filled
+one, and what is worth promoting to long-term memory.
+`build_scratchpad_toolset(guidance=...)` is a value a host puts in an agent's
+`toolsets`; the runtime names no agent, and the third string lands on the
+`promote_to_memory` tool description, which is what the model reads when it
+decides to promote.
+
+`assistant_core.scratchpad.compactor.compact_scratchpad` takes a factory that
+builds the compactor agent, so the model and the rewriting instructions are the
+host's, and a host builds one only when a ceiling is passed. The runtime owns
+the gate, the token trim, the cost and the write-back.
 
 `assistant_core.errors.AssistantCoreError` is the base of every refusal the
 runtime raises across that surface (`ConversationNotFoundError`,

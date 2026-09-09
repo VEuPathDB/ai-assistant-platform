@@ -22,6 +22,8 @@ Choices made deliberately, each naming the alternative that was rejected and why
 - [Ownership is answered here and the status code is the host's](ownership-is-answered-here-and-the-status-code-is-the-hosts.md) - a thread belongs to a user under one application, and the refusal is a plain error the host maps
 - [A stop is a row, and the host releases the job](a-stop-is-a-row-and-the-host-releases-the-job.md) - the running worker polls a durable row, and ending a dead worker's turn is a callable the host passes in
 - [The runtime counts the cost and the host sets the limit](the-runtime-counts-the-cost-and-the-host-sets-the-limit.md) - spend is accumulated per user per application, and the budget arrives as an argument
+- [The scratchpad is the runtime's and the coaching is the host's](the-scratchpad-is-the-runtimes-and-the-coaching-is-the-hosts.md) - the notes, the nine tools and the index are the runtime's; what the model is told to write down is a guidance argument
+- [The compactor agent is supplied by the host](the-compactor-agent-is-supplied-by-the-host.md) - the gate, the trim, the cost and the write-back are the runtime's; the agent that rewrites the notes is an argument
 
 ## Persistence
 
