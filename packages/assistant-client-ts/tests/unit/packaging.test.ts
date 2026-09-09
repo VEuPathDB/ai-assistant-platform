@@ -6,6 +6,7 @@ import { describe, expect, it } from "vitest";
 const PACKAGE_ROOT = fileURLToPath(new URL("../..", import.meta.url));
 
 interface PackageManifest {
+  readonly name: string;
   readonly dependencies?: Record<string, string>;
   readonly devDependencies?: Record<string, string>;
   readonly peerDependencies?: Record<string, string>;
@@ -50,6 +51,10 @@ describe("the packed artifact", () => {
         import: `./dist/${entry}.js`,
       });
     }
+  });
+
+  it("is published under the organisation's scope", () => {
+    expect(manifest.name).toBe("@veupathdb/assistant-client");
   });
 
   it("ships the build output and nothing else", () => {

@@ -182,27 +182,6 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@pathfinder/assistant-client@workspace:packages/assistant-client-ts":
-  version: 0.0.0-use.local
-  resolution: "@pathfinder/assistant-client@workspace:packages/assistant-client-ts"
-  dependencies:
-    "@eslint/js": "npm:10.0.1"
-    "@types/node": "npm:26.4.0"
-    ai: "npm:7.0.87"
-    eslint: "npm:10.9.1"
-    prettier: "npm:3.9.6"
-    typescript: "npm:6.0.3"
-    typescript-eslint: "npm:8.69.0"
-    vitest: "npm:4.1.11"
-    zod: "npm:4.5.4"
-  peerDependencies:
-    ai: ">=6.0.250 <8"
-  peerDependenciesMeta:
-    ai:
-      optional: true
-  languageName: unknown
-  linkType: soft
-
 "@rolldown/binding-android-arm-eabi@npm:1.2.6":
   version: 1.2.6
   resolution: "@rolldown/binding-android-arm-eabi@npm:1.2.6"
@@ -510,6 +489,27 @@ __metadata:
   checksum: 10/2a64ee806217d8e1cff79cc9d2925d6381883d24fa7b76ef07c9c1178534b624dc8da4d00d39f42e2a3be8c0ef35ab12bec2164dd978913db639c442fb93ccae
   languageName: node
   linkType: hard
+
+"@veupathdb/assistant-client@workspace:packages/assistant-client-ts":
+  version: 0.0.0-use.local
+  resolution: "@veupathdb/assistant-client@workspace:packages/assistant-client-ts"
+  dependencies:
+    "@eslint/js": "npm:10.0.1"
+    "@types/node": "npm:26.4.0"
+    ai: "npm:7.0.87"
+    eslint: "npm:10.9.1"
+    prettier: "npm:3.9.6"
+    typescript: "npm:6.0.3"
+    typescript-eslint: "npm:8.69.0"
+    vitest: "npm:4.1.11"
+    zod: "npm:4.5.4"
+  peerDependencies:
+    ai: ">=6.0.250 <8"
+  peerDependenciesMeta:
+    ai:
+      optional: true
+  languageName: unknown
+  linkType: soft
 
 "@vitest/expect@npm:4.1.11":
   version: 4.1.11

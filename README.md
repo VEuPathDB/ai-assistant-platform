@@ -7,7 +7,7 @@ science.
 | folder | distribution | import name |
 | --- | --- | --- |
 | `packages/assistant-core/` | `assistant-core` | `assistant_core` |
-| `packages/assistant-client-ts/` | `@pathfinder/assistant-client` | - |
+| `packages/assistant-client-ts/` | `@veupathdb/assistant-client` | - |
 | `packages/mcp-conformance/` | `veupathdb-mcp-conformance` | `mcp_conformance` |
 
 ## The `screening` extra
@@ -27,8 +27,8 @@ is the first step of the client's CI lane, so the suite runs against the version
 the lock names rather than whatever a fresh install picks.
 
 A consuming application names this repository, the workspace and one release tag
-(`"@pathfinder/assistant-client":
-"git+https://github.com/VEuPathDB/ai-assistant-platform.git#workspace=@pathfinder/assistant-client&tag=v<version>"`).
+(`"@veupathdb/assistant-client":
+"git+https://github.com/VEuPathDB/ai-assistant-platform.git#workspace=@veupathdb/assistant-client&tag=v<version>"`).
 Yarn clones the repository, installs it with its own lock, runs `prepack` and
 packs `dist`, so the consumer compiles the built output and needs no install
 here.
@@ -46,6 +46,36 @@ seeds from its `openMessage`, so a reload never tails from `0`. The peer range
 is `>=6.0.250 <8`, the releases that seed a resume that way;
 `tests/conformance/replayedMessage.test.ts` is the gate, and it fails on
 `ai` 6.0.154.
+
+## The runtime carries its own migration chain
+
+`assistant-core` owns `conversations`, `messages`, `conversation_events` and
+`memory_tombstones`, and ships the alembic history that creates them under
+`src/assistant_core/alembic/`, recording its position in
+`alembic_version_assistant_core`. A host application's chain uses its own
+version table, so the two share a database without touching each other.
+
+```bash
+uv run python -m assistant_core.migrate     # bring the four tables to head
+```
+
+The runtime does not migrate at start. A host that embeds this package as a
+library runs `assistant_core.migrate.upgrade_head(connection)` on its own
+connection, after its own chain, because the runtime's tables name host tables
+in foreign keys. A database whose host chain already created all four tables
+needs no `alembic stamp`: the baseline revision asks the inspector first and
+records the position without rebuilding anything. A database holding some of the
+four is refused, naming which are present and which are missing.
+
+`assistant_core.migrate.OWNED_TABLES` is the four names, and
+`assistant_core.migrate.include_object` is the alembic filter that keeps them. A
+host whose own `env.py` maps its tables on the same declarative base uses that
+filter's complement, so neither chain autogenerates a revision for the other's
+tables.
+
+The runtime declares one host table it does not own. A host supplies `users`
+with a uuid `id`; until the durable-task subsystem moves, it also supplies
+`background_tasks` with a uuid `id`. Nothing else is read from either.
 
 ## PROTOCOL.md is the contract
 

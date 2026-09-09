@@ -1,3 +1,4 @@
+export { toTraceParts } from "./ai-sdk/messageParts.ts";
 export {
   DurableChatTransport,
   type DurableChatTransportOptions,

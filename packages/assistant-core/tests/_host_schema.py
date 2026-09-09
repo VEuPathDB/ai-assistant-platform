@@ -1,7 +1,8 @@
 """The host tables the runtime points at but does not own.
 
-A runtime table names ``users`` and ``background_tasks`` in a foreign key, so
-a database the runtime stands up alone still needs them to exist.
+The contract is one column per table: a ``users`` row the runtime attributes a
+thread to, and until the task subsystem moves, a ``background_tasks`` row a
+chunk belongs to. See docs/knowledge/decisions/the-runtime-owns-its-task-tables.md.
 """
 
 from sqlalchemy import Column, Table

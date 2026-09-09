@@ -1,4 +1,5 @@
 import { asRecord, fieldNumber, fieldString } from "./chunks.ts";
+import { SUB_AGENT_CALL, readDispatch } from "./dispatch.ts";
 import {
   type DataPart,
   type MessagePart,
@@ -7,7 +8,7 @@ import {
   isDataPart,
   isToolPart,
 } from "./message.ts";
-import { TOOL_SUMMARY_KIND } from "./reduceTool.ts";
+import { TOOL_SUMMARY_KIND, toolSummaryStatuses } from "./reduceTool.ts";
 import {
   type SubAgentStepPayload,
   mergeSubAgentSteps,
@@ -61,7 +62,6 @@ export interface BuildTraceOptions {
 
 const LEAD = "lead";
 const NO_KINDS: ReadonlySet<string> = new Set();
-const STATUSES: readonly ToolSummaryStatus[] = ["ok", "empty", "warn"];
 const WIRE_STATES: readonly TraceGroupState[] = ["started", "completed", "failed"];
 const TURN_STOPPED = "data-turn-stopped";
 const TURN_FAILED = "data-turn-failed";
@@ -203,17 +203,14 @@ function ensureGroup(walk: Walk, key: string, phase: string): GroupBuild {
 }
 
 function openDispatch(walk: Walk, part: DataPart): void {
-  const data = asRecord(part.data);
-  if (data === undefined) return;
-  const key = fieldString(data, "toolCallId");
-  if (key === undefined) return;
-  const phase = fieldString(data, "phase");
-  const group = ensureGroup(walk, key, phase ?? key);
+  const call = readDispatch(part);
+  if (call === undefined) return;
+  const group = ensureGroup(walk, call.key, call.phase ?? call.key);
   group.fromSteps = true;
-  if (phase !== undefined) group.phase = phase;
-  group.state = WIRE_STATES.find((known) => known === data["state"]) ?? group.state;
-  group.tokens = fieldNumber(data, "tokens") ?? group.tokens;
-  group.costUsd = fieldString(data, "costUsd") ?? group.costUsd;
+  if (call.phase !== undefined) group.phase = call.phase;
+  group.state = WIRE_STATES.find((known) => known === call.state) ?? group.state;
+  group.tokens = fieldNumber(call.data, "tokens") ?? group.tokens;
+  group.costUsd = fieldString(call.data, "costUsd") ?? group.costUsd;
 }
 
 function pushStep(walk: Walk, part: DataPart): void {
@@ -232,13 +229,13 @@ function recordLine(walk: Walk, part: DataPart): void {
   const summary = fieldString(data, "summary");
   if (toolCallId === undefined || summary === undefined) return;
   const raw = fieldString(data, "status");
-  const status = STATUSES.find((known) => known === raw) ?? "ok";
+  const status = toolSummaryStatuses.find((known) => known === raw) ?? "ok";
   walk.lines.set(toolCallId, { summary, status });
 }
 
 function visitData(walk: Walk, part: DataPart): void {
   if (part.type === TOOL_SUMMARY_KIND) return recordLine(walk, part);
-  if (part.type === "data-sub-agent-call") return openDispatch(walk, part);
+  if (part.type === SUB_AGENT_CALL) return openDispatch(walk, part);
   if (part.type === "data-sub-agent-step") return pushStep(walk, part);
   if (walk.kinds.has(part.type)) ensureRun(walk).figures.push(part);
 }

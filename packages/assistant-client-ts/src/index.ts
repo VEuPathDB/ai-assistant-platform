@@ -26,8 +26,10 @@ export {
   type AssistantMessage,
   type DataPart,
   type FilePart,
+  type MessageLike,
   type MessagePart,
   type MessageRole,
+  type PartLike,
   type PromptMessage,
   type ReasoningPart,
   type SourceDocumentPart,
@@ -38,12 +40,33 @@ export {
   type ThreadMessage,
   type ToolPart,
   type ToolSummaryStatus,
+  isDataPart,
+  isToolPart,
 } from "./core/message.ts";
 export {
   type SubAgentItem,
   type SubAgentStepPayload,
   mergeSubAgentSteps,
+  readSubAgentStep,
 } from "./core/subAgentSteps.ts";
+export { runningPhase } from "./core/dispatch.ts";
+export {
+  type TaskCompletion,
+  type TaskLane,
+  type TaskLifecycle,
+  type TaskLifecycleOptions,
+  type TaskProgress,
+  type TaskStatus,
+  orderedLanes,
+  taskLifecycle,
+} from "./core/tasks.ts";
+export {
+  type ThreadUsage,
+  type TurnUsage,
+  type Usage,
+  threadUsage,
+  turnUsage,
+} from "./core/usage.ts";
 export {
   type BuildTraceOptions,
   type Trace,

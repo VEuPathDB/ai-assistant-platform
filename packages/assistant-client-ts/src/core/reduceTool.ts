@@ -16,7 +16,12 @@ import {
 /** The kind section 6.3 defines. It patches a call and appends no part. */
 export const TOOL_SUMMARY_KIND = "data-tool-summary";
 
-const TOOL_SUMMARY_STATUSES: readonly ToolSummaryStatus[] = ["ok", "empty", "warn"];
+/** The statuses section 6.3 defines for a tool's own line. */
+export const toolSummaryStatuses: readonly ToolSummaryStatus[] = [
+  "ok",
+  "empty",
+  "warn",
+];
 
 export const toolChunkKinds = [
   "tool-input-start",
@@ -220,7 +225,7 @@ export function applyToolSummary(
   if (track === undefined) return true;
   const raw = fieldString(data, "status");
   track.summary = summary;
-  track.summaryStatus = TOOL_SUMMARY_STATUSES.find((known) => known === raw) ?? "ok";
+  track.summaryStatus = toolSummaryStatuses.find((known) => known === raw) ?? "ok";
   const part = parts[track.index];
   if (part === undefined || !isToolPart(part)) return true;
   part.summary = track.summary;

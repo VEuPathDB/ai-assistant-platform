@@ -10,7 +10,7 @@ status: stable
 
 # What was decided
 
-`packages/assistant-client-ts` publishes `@pathfinder/assistant-client` as three
+`packages/assistant-client-ts` publishes `@veupathdb/assistant-client` as three
 entry points, and a consumer takes only the ring it needs.
 
 **The core (`.`) has no runtime dependencies.** It is the whole of

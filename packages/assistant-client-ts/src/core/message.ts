@@ -1,5 +1,17 @@
 export type MessageRole = "system" | "user" | "assistant";
 
+/** The least a reader needs of a part: its kind and, for a data part, its payload. */
+export interface PartLike {
+  readonly type: string;
+  readonly data?: unknown;
+}
+
+/** The least a reader needs of a message: who spoke, and the parts it holds. */
+export interface MessageLike {
+  readonly role: string;
+  readonly parts: readonly PartLike[];
+}
+
 export type StreamState = "streaming" | "done";
 
 export interface TextPart {
