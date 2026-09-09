@@ -85,9 +85,59 @@ class AssistantRegistry:
         return tuple(seen)
 
 
+class RegistryNotInstalledError(RuntimeError):
+    """Work outside a request asked for the assistants before a host installed them."""
+
+    def __init__(self) -> None:
+        super().__init__(
+            "no assistant registry is installed: call "
+            "install_assistant_registry(registry) during composition",
+        )
+
+
+class _InstalledRegistry:
+    """The assistants this process serves."""
+
+    def __init__(self) -> None:
+        self._registry: AssistantRegistry | None = None
+
+    def install(self, registry: AssistantRegistry) -> None:
+        self._registry = registry
+
+    def reset(self) -> None:
+        self._registry = None
+
+    def read(self) -> AssistantRegistry:
+        if self._registry is None:
+            raise RegistryNotInstalledError
+        return self._registry
+
+
+_installed = _InstalledRegistry()
+
+
+def install_assistant_registry(registry: AssistantRegistry) -> None:
+    """Serve this deployment's assistants to work that carries no request."""
+    _installed.install(registry)
+
+
+def reset_assistant_registry() -> None:
+    """Serve no assistants again, as a process that installed none does."""
+    _installed.reset()
+
+
+def assistant_registry() -> AssistantRegistry:
+    """The installed registry."""
+    return _installed.read()
+
+
 __all__ = [
     "AssistantRegistry",
     "DuplicateAssistantError",
+    "RegistryNotInstalledError",
     "UnknownAssistantError",
     "UnknownDefaultAssistantError",
+    "assistant_registry",
+    "install_assistant_registry",
+    "reset_assistant_registry",
 ]

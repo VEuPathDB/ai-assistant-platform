@@ -2,6 +2,60 @@
 
 ## 2026-09-09
 
+The durable-task subsystem moved in whole. `assistant_core.tasks` holds the
+`@durable_tool` decorator, the declaration registry, the payload, the progress
+emitter, the runner, the completion turn, the task service and read queries,
+and the stalled-job release. `background_tasks` and `task_progress` joined the
+chain as revision `2026_09_09_0004`, `OWNED_TABLES` is ten names, and the
+host-table contract is now `users` alone. The baseline no longer creates
+`conversation_events.task_id`'s foreign key; the fourth revision adds it after
+creating the table it points at.
+
+`procrastinate` is a dependency of this package, and the application it runs on
+is not: a host builds it and calls `install_task_app`. Three more seams carry
+what the runtime cannot know: `install_worker_context` builds the turn context
+a body reads, `install_completion_turn` drives the turn a finished task opens,
+and `install_durable_job_context` carries state the worker cannot re-derive, so
+no product's credential is named here. `assistant_core.tasks.names` declares
+the queues and the two job names a host wires.
+
+The three strings that had to match became one value.
+`declare_durable_tool` returns a `DurableTool`; the decorator and the body
+registration take it, and `register_durable_jobs` derives the procrastinate
+job. A registration naming an undeclared tool is refused at import with a
+sentence that says what to pass.
+
+`release_dead_turn` came with the queue, so the `release_dead_turn` argument
+of `stop_turns_and_wait`, `stop_turn_before_delete` and `cancel_active_turn` is
+gone; a stop releases the job itself. `assistant_core.registry` grew
+`install_assistant_registry`, because the completion turn resolves a thread's
+assistant with no request to read one from.
+
+Nothing on the wire changed. `data-background-task-started`,
+`data-task-progress` and `data-task-completed` are built by the same three
+functions, the coalescing rule is five percentage points or ten seconds, the
+suspended turn still ends with `finishReason: "other"`, and
+`assistant-client-ts`'s `durableTask.test.ts` passes unchanged.
+
+Two decisions are new: the runtime defers onto the host's queue; a durable tool
+is declared once. `The runtime owns its task tables` is stable, and the
+durable-task convention this bundle now carries came from the consuming
+application's own instructions.
+
+The credential a host carries onto a worker is now typed. `DurableJobState` is
+the model a host subclasses, `CarriedSecret` is the field type that masks
+itself in a repr, and `install_job_payload_redaction` keeps the value out of
+the queue's own log lines, so no host filter matches on a product's key name;
+it names the worker's own logger and `setup_logging` attaches it again, so
+neither call order leaves the line unscrubbed.
+The heartbeat moved with the window that reads it:
+`assistant_core.tasks.heartbeat` writes the beat, `RuntimeSettings` carries
+`worker_heartbeat_interval_seconds` and refuses a beat too slow for
+`worker_dead_heartbeat_seconds`. Each installed seam grew a `reset_*` in its
+own module, so a test installs and resets through the public surface.
+`assistant_core.tasks.chat_turn` publishes the two fields the stalled-job
+sweep reads out of a host's chat-turn payload.
+
 The scratchpad moved in whole: `assistant_core.scratchpad` holds the note
 models, the ids, the notebook that opens one session per call, the nine tools,
 the toolset that hides what an empty scratchpad cannot use and breaks a read
@@ -109,7 +163,6 @@ error, and the ONNX runtime behind the `screening` extra. `setup_logging` now
 assigns its handler onto the root logger, so a second call leaves one handler.
 Two decisions are new: input screening is configured by the host; the process
 logging setup is written once per served distribution.
-
 
 Bundle created. The runtime, protocol, client and conformance decisions that had
 been living in the consuming application's bundle moved here, and their

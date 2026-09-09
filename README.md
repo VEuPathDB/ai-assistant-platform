@@ -70,7 +70,7 @@ first and records the position without rebuilding anything. A database holding
 some of one revision's tables is refused, naming which are present and which
 are missing.
 
-`assistant_core.migrate.OWNED_TABLES` is the eight names, and
+`assistant_core.migrate.OWNED_TABLES` is the ten names, and
 `assistant_core.migrate.include_object` is the alembic filter that keeps them. A
 host whose own `env.py` maps its tables on the same declarative base uses that
 filter's complement, so neither chain autogenerates a revision for the other's
@@ -79,13 +79,12 @@ not move when the distribution grows; a test holds the union of those to
 `OWNED_TABLES`.
 
 The runtime declares one host table it does not own. A host supplies `users`
-with a uuid `id`; until the durable-task subsystem moves, it also supplies
-`background_tasks` with a uuid `id`. Nothing else is read from either.
+with a uuid `id`. Nothing else is read from it.
 
 ## What a host supplies to the runtime
 
 The runtime holds the rules that read its own rows and hands back the decisions
-a product makes. Six seams carry that split.
+a product makes. These seams carry that split.
 
 `assistant_core.quota` counts spend into `monthly_usage` per user per
 application, and `get_current(session, user_id, limit_usd=...)` takes the
@@ -93,8 +92,8 @@ budget as an argument: the runtime stores no limit and reads no user record.
 What a caller at a hundred percent is told is the host's.
 
 `assistant_core.conversation.cancellation` writes the stop row a running worker
-polls, and takes `release_dead_turn` so the host can fail the job of a worker
-that is already gone. The runtime owns no job queue.
+polls, and fails the job of a worker that is already gone through
+`assistant_core.tasks.maintenance`.
 
 `assistant_core.conversation.authz` answers ownership over a
 `ConversationLookup`, a protocol whose one member is `get_by_id`. A host passes
@@ -113,6 +112,26 @@ decides to promote.
 builds the compactor agent, so the model and the rewriting instructions are the
 host's, and a host builds one only when a ceiling is passed. The runtime owns
 the gate, the token trim, the cost and the write-back.
+
+`assistant_core.tasks` runs durable tools on a queue the host opens.
+`install_task_app(app)` gives the runtime the procrastinate application and its
+schema; `install_worker_context(build)` builds the turn context a durable body
+reads; `install_completion_turn(run)` drives the turn a finished task opens;
+`install_durable_job_context(ctx)` carries state a worker cannot re-derive, so
+the runtime names no product's credential. Each of those has a `reset_*` in the
+same module. A host subclasses `DurableJobState` and types every credential
+`CarriedSecret`, and `register_durable_jobs` scrubs the carried state out of
+the queue's own log lines, so no host filter matches on a product's key name.
+`declare_durable_tool` names a tool once, and the decorator, the procrastinate
+job and the worker body all read that value.
+`assistant_core.tasks.heartbeat.HeartbeatThread` writes the beat that
+`worker_dead_heartbeat_seconds` reads, and the settings refuse a beat too slow
+for that window. `assistant_core.tasks.names` holds the queues and the job
+names a host wires, and `assistant_core.tasks.chat_turn` states the two fields
+the stalled-job sweep reads out of a host's chat-turn payload.
+
+`assistant_core.registry.install_assistant_registry` serves the assistants to
+work that carries no request, such as the turn a finished durable task opens.
 
 `assistant_core.errors.AssistantCoreError` is the base of every refusal the
 runtime raises across that surface (`ConversationNotFoundError`,

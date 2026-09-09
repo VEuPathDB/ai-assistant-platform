@@ -1,7 +1,7 @@
 ---
 type: Decision
 title: A stop is a row, and the host releases the job
-description: Stopping a turn writes a chat_turn_cancellations row the running worker polls. The runtime owns no job queue, so ending a turn whose worker is already dead is a callable the host passes in.
+description: Stopping a turn writes a chat_turn_cancellations row the running worker polls, and a turn whose worker is already dead is ended by failing the job that holds it.
 tags: [assistant-core, cancellation, persistence, seams]
 generated: { by: claude-code/opus-5, at: 2026-09-09T00:00:00Z }
 verified: { by: claude-code/opus-5, at: 2026-09-09T00:00:00Z }
@@ -24,11 +24,13 @@ listen rather than poll knows the name it would listen on. No listener exists
 today; every reader of the stop polls the row, and the notification is the
 open half a host may take instead.
 
-`stop_turns_and_wait` and `cancel_active_turn` take
-`release_dead_turn: Callable[[UUID], Awaitable[None]]`. A worker that has been
-silent longer than the host's heartbeat window never reads the row, so its job
-must be failed and its stream closed from outside. The runtime owns no queue
-and no heartbeat window, so that half is the host's, passed in per call.
+`stop_turns_and_wait` and `cancel_active_turn` release the job themselves,
+through `assistant_core.tasks.maintenance.release_dead_turn`. A worker silent
+longer than `worker_dead_heartbeat_seconds` never reads the row, so its job is
+failed and its stream closed from outside. This was a callable the host passed
+in per call while `background_tasks` was still the host's; the durable-task
+move brought the queue into this package, so the argument went and the release
+is an implementation detail.
 
 `stop_turn_before_delete` waits for the closing chunk and raises
 `TurnStillRunningError` when it does not come, because a worker appends to a
@@ -39,12 +41,10 @@ waits for a worker is the caller's patience, not the runtime's.
 # What was rejected
 
 **Importing the host's maintenance job.** The application these functions came
-from called its own `release_dead_turn` directly. That is an import of the host
-from the runtime, which the package boundary refuses. When the durable-task
-subsystem moves here
-(see [The runtime owns its task tables](the-runtime-owns-its-task-tables.md),
-proposed, executed in the task-table move)
-the callable becomes an implementation detail and the argument goes.
+from called its own `release_dead_turn` directly. That would have been an
+import of the host from the runtime, which the package boundary refuses. The
+release moved here instead, with the queue it needs
+(see [The runtime defers onto the host's queue](the-runtime-defers-onto-the-hosts-queue.md)).
 
 **Cancelling through LISTEN/NOTIFY alone.** A notification reaches a live
 listener and nobody else, so a worker that reconnects after a restart would
@@ -60,6 +60,7 @@ processes, so it belongs to this bundle.
 `packages/assistant-core/tests/integration/conversation/test_stop_protocol.py`:
 a stop writes the row the worker reads, a closed turn has nothing to stop, the
 newest open turn is the one stopped, a caller of another application is refused
-and writes nothing, the owner's stop calls the host's release, a worker that
-never closes is reported pending, and the wait ends as soon as the closing
-chunk lands.
+and releases no job, the owner's stop fails the job a dead worker held, a
+worker that never closes is reported pending, a stop on a dead worker's thread
+closes the stream it left open, and the wait ends as soon as the closing chunk
+lands.

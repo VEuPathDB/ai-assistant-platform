@@ -19,8 +19,12 @@ from assistant_core.platform.db import async_session_factory
 from assistant_core.registry import (
     AssistantRegistry,
     DuplicateAssistantError,
+    RegistryNotInstalledError,
     UnknownAssistantError,
     UnknownDefaultAssistantError,
+    assistant_registry,
+    install_assistant_registry,
+    reset_assistant_registry,
 )
 from assistant_core.spec import (
     AssistantSpec,
@@ -193,3 +197,26 @@ def test_the_turn_input_is_only_what_the_state_factory_set() -> None:
         "site_id",
         "mode",
     }
+
+
+def test_work_without_a_request_before_a_registry_says_what_to_call() -> None:
+    reset_assistant_registry()
+
+    with pytest.raises(RegistryNotInstalledError) as caught:
+        assistant_registry()
+
+    assert str(caught.value) == (
+        "no assistant registry is installed: call "
+        "install_assistant_registry(registry) during composition"
+    )
+
+
+def test_the_installed_registry_is_the_one_work_without_a_request_reads() -> None:
+    registry = AssistantRegistry(specs=[_spec("alpha")], default_id="alpha")
+    install_assistant_registry(registry)
+
+    assert assistant_registry() is registry
+
+    reset_assistant_registry()
+    with pytest.raises(RegistryNotInstalledError):
+        assistant_registry()

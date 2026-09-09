@@ -6,7 +6,9 @@ import asyncio
 from collections.abc import Iterator
 from uuid import UUID, uuid4
 
+import procrastinate
 import pytest
+from procrastinate.testing import InMemoryConnector
 from tests.conftest import seed_host_user
 
 from assistant_core.conversation.cancellation import (
@@ -20,6 +22,8 @@ from assistant_core.errors import ConversationNotFoundError, TurnStillRunningErr
 from assistant_core.persistence.models import Conversation, ConversationEvent
 from assistant_core.platform.context import application_id_ctx
 from assistant_core.platform.db import async_session_factory
+from assistant_core.tasks.app import install_task_app, reset_task_app
+from assistant_core.tasks.names import CHAT_TURN_QUEUE, CHAT_TURN_TASK
 
 HOME = "pathfinder"
 OTHER = "companion"
@@ -27,14 +31,44 @@ SITE = "plasmodb"
 WAIT_SECONDS = 0.4
 
 
-class Releases:
-    """Records the threads the host was asked to release."""
+@pytest.fixture(autouse=True)
+def queue() -> Iterator[procrastinate.App]:
+    """A job queue whose jobs stay in memory, as a host would install one."""
+    app = procrastinate.App(connector=InMemoryConnector())
+    install_task_app(app)
+    yield app
+    reset_task_app()
 
-    def __init__(self) -> None:
-        self.asked: list[UUID] = []
 
-    async def __call__(self, conversation_id: UUID) -> None:
-        self.asked.append(conversation_id)
+async def _held_chat_turn(
+    app: procrastinate.App,
+    *,
+    conversation_id: UUID,
+    turn_id: UUID,
+) -> int:
+    """A chat-turn job whose worker stopped answering."""
+    job = app.configure_task(
+        name=CHAT_TURN_TASK,
+        queue=CHAT_TURN_QUEUE,
+        lock=str(conversation_id),
+    )
+    job_id = await job.defer_async(
+        payload={
+            "turn_id": str(turn_id),
+            "body": {"conversationId": str(conversation_id)},
+        },
+    )
+    connector = app.connector
+    assert isinstance(connector, InMemoryConnector)
+    connector.jobs[job_id]["status"] = "doing"
+    connector.jobs[job_id]["worker_id"] = 7
+    return job_id
+
+
+def _job_status(app: procrastinate.App, job_id: int) -> str:
+    connector = app.connector
+    assert isinstance(connector, InMemoryConnector)
+    return str(connector.jobs[job_id]["status"])
 
 
 @pytest.fixture
@@ -128,11 +162,16 @@ async def test_the_newest_open_turn_is_the_one_that_is_stopped(
 async def test_a_caller_of_another_application_cannot_stop_the_thread(
     owner: UUID,
     under_home: None,
+    queue: procrastinate.App,
 ) -> None:
     del under_home
     conversation_id, turn_id = await _thread(owner, OTHER), uuid4()
     await _append(conversation_id, turn_id, "text-delta")
-    releases = Releases()
+    job_id = await _held_chat_turn(
+        queue,
+        conversation_id=conversation_id,
+        turn_id=turn_id,
+    )
 
     async with async_session_factory() as session:
         with pytest.raises(ConversationNotFoundError):
@@ -140,34 +179,37 @@ async def test_a_caller_of_another_application_cannot_stop_the_thread(
                 session,
                 conversation_id=conversation_id,
                 user_id=owner,
-                release_dead_turn=releases,
             )
 
-    assert releases.asked == []
+    assert _job_status(queue, job_id) == "doing"
     assert not await turn_is_cancelled(
         conversation_id=conversation_id,
         turn_id=turn_id,
     )
 
 
-async def test_the_owner_stops_the_turn_and_the_host_releases_its_job(
+async def test_the_owner_stops_the_turn_and_a_dead_worker_s_job_is_released(
     owner: UUID,
     under_home: None,
+    queue: procrastinate.App,
 ) -> None:
     del under_home
     conversation_id, turn_id = await _thread(owner), uuid4()
     await _append(conversation_id, turn_id, "text-delta")
-    releases = Releases()
+    job_id = await _held_chat_turn(
+        queue,
+        conversation_id=conversation_id,
+        turn_id=turn_id,
+    )
 
     async with async_session_factory() as session:
         await cancel_active_turn(
             session,
             conversation_id=conversation_id,
             user_id=owner,
-            release_dead_turn=releases,
         )
 
-    assert releases.asked == [conversation_id]
+    assert _job_status(queue, job_id) == "failed"
     assert await turn_is_cancelled(conversation_id=conversation_id, turn_id=turn_id)
 
 
@@ -178,16 +220,14 @@ async def test_a_worker_that_never_closes_its_turn_is_reported_as_pending(
     del under_home
     conversation_id, turn_id = await _thread(owner), uuid4()
     await _append(conversation_id, turn_id, "text-delta")
-    releases = Releases()
 
     pending = await stop_turns_and_wait(
         [conversation_id],
-        release_dead_turn=releases,
         timeout_seconds=WAIT_SECONDS,
     )
 
     assert pending == [conversation_id]
-    assert releases.asked == [conversation_id]
+    assert await turn_is_cancelled(conversation_id=conversation_id, turn_id=turn_id)
 
 
 async def test_a_delete_refuses_while_the_worker_still_holds_the_turn(
@@ -201,7 +241,6 @@ async def test_a_delete_refuses_while_the_worker_still_holds_the_turn(
     with pytest.raises(TurnStillRunningError) as caught:
         await stop_turn_before_delete(
             conversation_id,
-            release_dead_turn=Releases(),
             timeout_seconds=WAIT_SECONDS,
         )
 
@@ -223,7 +262,6 @@ async def test_the_wait_ends_as_soon_as_the_worker_closes_its_turn(
     closing = asyncio.create_task(_close_it())
     pending = await stop_turns_and_wait(
         [conversation_id],
-        release_dead_turn=Releases(),
         timeout_seconds=WAIT_SECONDS * 5,
     )
     await closing
@@ -234,9 +272,35 @@ async def test_the_wait_ends_as_soon_as_the_worker_closes_its_turn(
 async def test_stopping_no_threads_touches_nothing(
     owner: UUID,
     under_home: None,
+    queue: procrastinate.App,
 ) -> None:
     del owner, under_home
-    releases = Releases()
+    connector = queue.connector
+    assert isinstance(connector, InMemoryConnector)
 
-    assert await stop_turns_and_wait([], release_dead_turn=releases) == []
-    assert releases.asked == []
+    assert await stop_turns_and_wait([]) == []
+    assert connector.jobs == {}
+
+
+async def test_a_stop_on_a_dead_worker_s_thread_closes_the_stream_it_left_open(
+    owner: UUID,
+    under_home: None,
+    queue: procrastinate.App,
+) -> None:
+    """The worker never reads the row, so the turn ends from outside."""
+    del under_home
+    conversation_id, turn_id = await _thread(owner), uuid4()
+    await _append(conversation_id, turn_id, "text-delta")
+    job_id = await _held_chat_turn(
+        queue,
+        conversation_id=conversation_id,
+        turn_id=turn_id,
+    )
+
+    pending = await stop_turns_and_wait(
+        [conversation_id],
+        timeout_seconds=WAIT_SECONDS,
+    )
+
+    assert pending == []
+    assert _job_status(queue, job_id) == "failed"

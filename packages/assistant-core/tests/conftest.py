@@ -22,6 +22,7 @@ from assistant_core.embeddings import embedder
 from assistant_core.persistence.models import Base, Conversation
 from assistant_core.platform import db
 from assistant_core.platform.config import RuntimeSettings, use_settings_source
+from assistant_core.tasks.declaration import empty_durable_tools
 
 _DEFAULT_TEST_URL = (
     "postgresql+asyncpg://postgres:postgres@localhost:5432/pathfinder_test"
@@ -128,7 +129,8 @@ async def db_cleaner(db_engine: AsyncEngine) -> AsyncGenerator[None]:
         await conn.exec_driver_sql(
             "TRUNCATE TABLE memory_tombstones, monthly_usage, "
             "chat_turn_cancellations, scratchpad_notes, "
-            "scratchpad_compactions, conversation_events, messages, "
+            "scratchpad_compactions, task_progress, background_tasks, "
+            "conversation_events, messages, "
             "conversations, users RESTART IDENTITY CASCADE"
         )
         # The store tables exist only after a memory test creates them.
@@ -155,3 +157,10 @@ async def seed_thread(*, conversation_id: UUID, user_id: UUID, site_id: str) -> 
             Conversation(id=conversation_id, user_id=user_id, site_id=site_id),
         )
         await session.commit()
+
+
+@pytest.fixture
+def empty_registry() -> Generator[None]:
+    """A durable-tool declaration registry that starts empty for one test."""
+    with empty_durable_tools():
+        yield

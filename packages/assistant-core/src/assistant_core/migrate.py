@@ -21,6 +21,8 @@ OWNED_TABLES = (
     "monthly_usage",
     "scratchpad_notes",
     "scratchpad_compactions",
+    "background_tasks",
+    "task_progress",
 )
 
 

@@ -2,10 +2,13 @@
 
 from collections.abc import Callable
 from functools import lru_cache
-from typing import Literal
+from typing import Literal, Self
 
-from pydantic import Field
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# A worker must beat this many times inside the window that declares it dead.
+BEATS_INSIDE_THE_DEAD_WINDOW = 3
 
 
 class RuntimeSettings(BaseSettings):
@@ -48,6 +51,29 @@ class RuntimeSettings(BaseSettings):
 
     # Seconds one checkpoint call of a turn may take before it fails.
     checkpoint_timeout_seconds: float = Field(default=30.0, gt=0)
+
+    # Age at which a job still in "doing" is failed so its lock releases.
+    worker_stalled_job_timeout_seconds: int = Field(default=3600, ge=300)
+    # Silence after which a worker counts as dead and the jobs it holds are
+    # failed so their locks release.
+    worker_dead_heartbeat_seconds: int = Field(default=60, ge=60)
+    # How often the worker writes the beat the window above reads.
+    worker_heartbeat_interval_seconds: float = Field(default=5.0, gt=0)
+
+    @model_validator(mode="after")
+    def _beat_fits_inside_the_dead_window(self) -> Self:
+        beats = self.worker_heartbeat_interval_seconds * BEATS_INSIDE_THE_DEAD_WINDOW
+        if beats > self.worker_dead_heartbeat_seconds:
+            msg = (
+                "worker_heartbeat_interval_seconds "
+                f"({self.worker_heartbeat_interval_seconds}) leaves fewer than "
+                f"{BEATS_INSIDE_THE_DEAD_WINDOW} beats inside "
+                "worker_dead_heartbeat_seconds "
+                f"({self.worker_dead_heartbeat_seconds}): a live worker would be "
+                "read as dead and the jobs it holds would be failed"
+            )
+            raise ValueError(msg)
+        return self
 
 
 @lru_cache

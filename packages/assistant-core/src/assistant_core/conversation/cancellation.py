@@ -1,13 +1,13 @@
 """Turn cancellation for a thread.
 
 Stop writes a request row that the worker running the turn polls. A worker
-that has been silent longer than the host's heartbeat window reads nothing, so
-the host also releases the turn through the callable it supplies.
+silent longer than the dead-heartbeat window reads nothing, so the job it
+holds is released too.
 """
 
 import asyncio
 import time
-from collections.abc import Awaitable, Callable, Sequence
+from collections.abc import Sequence
 from uuid import UUID
 
 from sqlalchemy import select
@@ -21,13 +21,10 @@ from assistant_core.persistence.repositories.chat_turn_cancellations import (
 )
 from assistant_core.persistence.repositories.conversation import ConversationRepository
 from assistant_core.platform.db import async_session_factory
+from assistant_core.tasks.maintenance import release_dead_turn
 
 STOP_POLL_INTERVAL_SECONDS = 0.05
 STOP_WAIT_TIMEOUT_SECONDS = 30.0
-
-# What the host runs to end a turn whose worker is already gone. The runtime
-# owns no job queue, so releasing the job is the host's half of a stop.
-ReleaseDeadTurn = Callable[[UUID], Awaitable[None]]
 
 
 async def _open_turns(conversation_ids: Sequence[UUID]) -> dict[UUID, UUID]:
@@ -74,7 +71,6 @@ async def cancel_in_flight_turn(conversation_id: UUID) -> bool:
 async def stop_turns_and_wait(
     conversation_ids: Sequence[UUID],
     *,
-    release_dead_turn: ReleaseDeadTurn,
     timeout_seconds: float = STOP_WAIT_TIMEOUT_SECONDS,
 ) -> list[UUID]:
     """Stop every in-flight turn on these threads and wait for their workers.
@@ -99,7 +95,6 @@ async def stop_turns_and_wait(
 async def stop_turn_before_delete(
     conversation_id: UUID,
     *,
-    release_dead_turn: ReleaseDeadTurn,
     timeout_seconds: float = STOP_WAIT_TIMEOUT_SECONDS,
 ) -> None:
     """Stop the thread's turn and wait for the worker before the row goes.
@@ -109,7 +104,6 @@ async def stop_turn_before_delete(
     """
     still_running = await stop_turns_and_wait(
         [conversation_id],
-        release_dead_turn=release_dead_turn,
         timeout_seconds=timeout_seconds,
     )
     if still_running:
@@ -127,7 +121,6 @@ async def cancel_active_turn(
     *,
     conversation_id: UUID,
     user_id: UUID,
-    release_dead_turn: ReleaseDeadTurn,
 ) -> None:
     """Stop the caller's own thread, and release the job if its worker is gone."""
     await get_visible_conversation(

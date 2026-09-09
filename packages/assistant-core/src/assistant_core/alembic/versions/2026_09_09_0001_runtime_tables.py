@@ -145,12 +145,9 @@ def upgrade() -> None:
             sa.ForeignKey("conversations.id", ondelete="CASCADE"),
             nullable=False,
         ),
-        sa.Column(
-            "task_id",
-            PGUUID(as_uuid=True),
-            sa.ForeignKey("background_tasks.id", ondelete="CASCADE"),
-            nullable=True,
-        ),
+        # The key into background_tasks is added by the revision that creates
+        # that table, because this revision runs before it exists.
+        sa.Column("task_id", PGUUID(as_uuid=True), nullable=True),
         sa.Column("turn_id", PGUUID(as_uuid=True), nullable=True),
         sa.Column("chunk", JSONB, nullable=False),
         sa.Column(

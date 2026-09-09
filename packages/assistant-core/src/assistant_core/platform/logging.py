@@ -16,6 +16,7 @@ from assistant_core.platform.context import (
     stream_id_ctx,
     user_id_ctx,
 )
+from assistant_core.tasks.redaction import install_job_payload_redaction
 
 QUIET_LOGGERS = ("httpx", "httpcore")
 UVICORN_LOGGERS = ("uvicorn", "uvicorn.error", "uvicorn.access")
@@ -131,6 +132,11 @@ def setup_logging() -> None:
         served.setLevel(logging.INFO)
         served.propagate = True
         served.handlers.clear()
+
+    # This call replaces the root handlers, so the scrub a job registration
+    # attached to them is attached again and either order of the two calls
+    # keeps a durable job's carried state off the log.
+    install_job_payload_redaction()
 
 
 def get_logger(name: str) -> structlog.BoundLogger:

@@ -1,5 +1,5 @@
 """The tables the runtime reads and writes: threads, turns, chunks, stops,
-cost and the scratchpad.
+cost, the scratchpad and the durable tasks.
 
 The declarative base is shared: a host application maps its own tables on it,
 so a foreign key between a host table and a runtime table resolves.
@@ -18,6 +18,7 @@ from sqlalchemy import (
     Computed,
     Date,
     DateTime,
+    Float,
     ForeignKey,
     Identity,
     Index,
@@ -427,3 +428,88 @@ class ScratchpadCompaction(Base):
         server_default="0",
     )
     trigger_reason: Mapped[str] = mapped_column(Text, nullable=False)
+
+
+class BackgroundTask(Base):
+    """One durable tool call a turn handed to a worker."""
+
+    __tablename__ = "background_tasks"
+    __table_args__ = (
+        Index("bg_tasks_conversation_idx", "conversation_id", "created_at"),
+    )
+
+    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True)
+    conversation_id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey("conversations.id", ondelete="CASCADE"),
+        index=True,
+        nullable=False,
+    )
+    user_id: Mapped[UUID] = mapped_column(
+        GUID(),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        index=True,
+        nullable=False,
+    )
+    tool_name: Mapped[str] = mapped_column(Text, nullable=False)
+    # The pydantic-ai call this task answers.
+    tool_call_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    status: Mapped[str] = mapped_column(Text, nullable=False, default="pending")
+    args: Mapped[dict[str, Any]] = mapped_column(
+        JSONB,
+        nullable=False,
+        default=dict,
+        server_default="{}",
+    )
+    # The per-role model and reasoning picks the deferring request carried, so
+    # the turn that answers this task runs under the same ones.
+    phase_overrides: Mapped[dict[str, Any]] = mapped_column(
+        JSONB,
+        nullable=False,
+        default=dict,
+        server_default="{}",
+    )
+    result: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    estimated_duration_seconds: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=60,
+        server_default="60",
+    )
+    started_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    completed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    )
+
+
+class TaskProgressRow(Base):
+    """One incremental progress record a durable task emitted."""
+
+    __tablename__ = "task_progress"
+    __table_args__ = (Index("task_progress_task_idx", "task_id", "emitted_at"),)
+
+    id: Mapped[int] = mapped_column(
+        BigInteger, Identity(always=False), primary_key=True
+    )
+    task_id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey("background_tasks.id", ondelete="CASCADE"),
+        index=True,
+        nullable=False,
+    )
+    percent: Mapped[float] = mapped_column(Float, nullable=False)
+    message: Mapped[str] = mapped_column(Text, nullable=False, server_default="")
+    data: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
+    emitted_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    )

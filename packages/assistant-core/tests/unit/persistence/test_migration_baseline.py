@@ -8,6 +8,7 @@ from assistant_core.migrate import OWNED_TABLES, alembic_config, include_object
 BASELINE = "2026_09_09_0001"
 STOP_AND_COST = "2026_09_09_0002"
 SCRATCHPAD = "2026_09_09_0003"
+TASKS = "2026_09_09_0004"
 
 
 def _revisions() -> list[Script]:
@@ -32,7 +33,6 @@ def test_the_filter_keeps_every_table_this_distribution_owns() -> None:
 
 def test_the_filter_drops_a_table_the_host_owns() -> None:
     assert include_object(None, "users", "table", True, None) is False
-    assert include_object(None, "background_tasks", "table", True, None) is False
     assert include_object(None, "gene_sets", "table", True, None) is False
 
 
@@ -52,6 +52,14 @@ def test_the_stop_and_cost_revision_also_refuses_to_drop_its_tables() -> None:
 
 def test_the_scratchpad_revision_also_refuses_to_drop_its_tables() -> None:
     revision = ScriptDirectory.from_config(alembic_config()).get_revision(SCRATCHPAD)
+    assert revision is not None
+
+    with pytest.raises(NotImplementedError, match="host chain built"):
+        revision.module.downgrade()
+
+
+def test_the_task_revision_also_refuses_to_drop_its_tables() -> None:
+    revision = ScriptDirectory.from_config(alembic_config()).get_revision(TASKS)
     assert revision is not None
 
     with pytest.raises(NotImplementedError, match="host chain built"):

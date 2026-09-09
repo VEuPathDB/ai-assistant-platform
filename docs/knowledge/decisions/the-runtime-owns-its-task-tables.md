@@ -5,7 +5,7 @@ description: background_tasks and task_progress move into assistant-core and ont
 tags: [assistant-core, persistence, durable-tasks, protocol]
 generated: { by: claude-code/opus-5, at: 2026-09-09T00:00:00Z }
 verified: { by: claude-code/opus-5, at: 2026-09-09T00:00:00Z }
-status: proposed
+status: stable
 ---
 
 # The question
@@ -46,9 +46,30 @@ product columns about a person's consent, and unambiguously the host's.
 `phase_overrides` holds the per-role model and reasoning map that `PROTOCOL.md`
 already declares as core request fields.
 
-Until the move lands, `conversation_events.task_id` still names a host
-`background_tasks`, so the contract the suite fabricates is two tables of one
-column each. After it, the contract is `users` alone.
+The contract is now `users` alone, and the suite fabricates one table of one
+column. `background_tasks` and `task_progress` are revision
+`2026_09_09_0004`. The baseline creates `conversation_events` before that
+revision exists, so the baseline leaves `conversation_events.task_id` without
+its foreign key and revision `2026_09_09_0004` adds it, whichever chain
+created the table it points at: the revision checks for a key on `task_id` and
+writes one when there is none, on the path that creates the tables and on the
+path that finds a host's.
+
+**The baseline revision was rewritten after it shipped.** `2026_09_09_0001`
+went out under `v0.3.0a1`, `a2` and `a3` creating `conversation_events` with a
+key into `background_tasks`, which only worked because the host was required
+to fabricate that table first. Removing that requirement is this decision, so
+the shipped bytes and this decision cannot both stand: on a clean database
+they raise `relation "background_tasks" does not exist` before any later
+revision runs. The rewrite is safe because no database outside the test suite
+has run this chain, and because a database that *had* run the shipped baseline
+necessarily holds a host-supplied `background_tasks` and no `task_progress`,
+which revision four names and refuses rather than stamping over.
+
+**Taking this release needs the durable queue drained.** The durable job's
+kwargs lost `veupathdb_auth_token` and gained `job_context`. The job names did
+not change, so an old in-flight job reaches the new worker and fails on an
+unexpected keyword argument.
 
 # What was rejected
 
@@ -72,6 +93,8 @@ three chunks.
 # Anchor
 
 `packages/assistant-core/tests/unit/persistence/test_host_table_contract.py`:
-the runtime's foreign keys reach `users.id` and `background_tasks.id` and no
-other host column, and the whole suite runs against a fabrication that carries
-exactly those two columns.
+the runtime's foreign keys reach `users.id` and no other host column, and the
+whole suite runs against a fabrication that carries exactly that column.
+`tests/integration/persistence/test_migration_chain.py` adds the key from a
+task-tagged chunk to the task table on both paths, the cascade that removes a
+task and its progress with its thread, and the refusal of a half-built pair.

@@ -20,15 +20,17 @@ Choices made deliberately, each naming the alternative that was rejected and why
 - [The runtime's stored defaults name no product](the-runtime-defaults-name-no-product.md) - the application and assistant defaults are `default`, and a host stamps its own id
 - [Input screening is configured by the host](input-screening-is-configured-by-the-host.md) - the model directory is a constructor argument, the rejection is a plain error, and the ONNX runtime is an optional extra
 - [Ownership is answered here and the status code is the host's](ownership-is-answered-here-and-the-status-code-is-the-hosts.md) - a thread belongs to a user under one application, and the refusal is a plain error the host maps
-- [A stop is a row, and the host releases the job](a-stop-is-a-row-and-the-host-releases-the-job.md) - the running worker polls a durable row, and ending a dead worker's turn is a callable the host passes in
+- [A stop is a row, and the host releases the job](a-stop-is-a-row-and-the-host-releases-the-job.md) - the running worker polls a durable row, and a dead worker's turn ends by failing the job that holds it
 - [The runtime counts the cost and the host sets the limit](the-runtime-counts-the-cost-and-the-host-sets-the-limit.md) - spend is accumulated per user per application, and the budget arrives as an argument
 - [The scratchpad is the runtime's and the coaching is the host's](the-scratchpad-is-the-runtimes-and-the-coaching-is-the-hosts.md) - the notes, the nine tools and the index are the runtime's; what the model is told to write down is a guidance argument
 - [The compactor agent is supplied by the host](the-compactor-agent-is-supplied-by-the-host.md) - the gate, the trim, the cost and the write-back are the runtime's; the agent that rewrites the notes is an argument
+- [The runtime defers onto the host's queue](the-runtime-defers-onto-the-hosts-queue.md) - the deferral, the parked call, the progress and the completion turn are the runtime's; the procrastinate application and four seams are installed by the host
+- [A durable tool is declared once](a-durable-tool-is-declared-once.md) - one declaration names the decorator, the job and the worker body, so the three strings cannot drift
 
 ## Persistence
 
 - [The runtime ships its own migration chain](the-runtime-ships-its-own-migration-chain.md) - the four tables it owns are created by an alembic history it packs, and the baseline no-ops on a database a host chain already built
-- [The runtime owns its task tables](the-runtime-owns-its-task-tables.md) - `background_tasks` and `task_progress` become the runtime's, and `users` is the one table a host supplies
+- [The runtime owns its task tables](the-runtime-owns-its-task-tables.md) - `background_tasks` and `task_progress` are the runtime's, and `users` is the one table a host supplies
 
 ## Packaging
 
