@@ -92,7 +92,7 @@ describe("a tail that crosses a turn boundary", () => {
   it("carries the reconnect's headers and abort signal onto the tail it opens", async () => {
     const probe = harness({
       thread: SUSPENDED_THREAD,
-      headers: { authorization: "Bearer wdk" },
+      headers: { authorization: "Bearer token" },
       cursors: seedSuspended(memoryCursorStore(), {
         after: SUSPENDED_START,
         done: SUSPENDED_DONE,
@@ -104,7 +104,7 @@ describe("a tail that crosses a turn boundary", () => {
 
     const opened = probe.requests[0]?.init;
     const chained = probe.requests[1]?.init;
-    expect(new Headers(chained?.headers).get("authorization")).toBe("Bearer wdk");
+    expect(new Headers(chained?.headers).get("authorization")).toBe("Bearer token");
     expect(chained?.signal).toBe(opened?.signal);
     expect(chained?.signal).toBeInstanceOf(AbortSignal);
   });

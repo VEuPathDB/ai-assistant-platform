@@ -30,7 +30,7 @@ def _get_engine() -> AsyncEngine:
     if not db_url.drivername.startswith("postgresql"):
         msg = (
             "SQLite is no longer supported. Set DATABASE_URL to a PostgreSQL URL, e.g. "
-            "'postgresql+asyncpg://postgres:postgres@localhost:5432/pathfinder'."
+            "'postgresql+asyncpg://postgres:postgres@localhost:5432/assistant'."
         )
         raise ValueError(msg)
 

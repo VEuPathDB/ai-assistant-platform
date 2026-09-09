@@ -6,12 +6,12 @@ import { reduceTurn } from "../../src/core/reduce.ts";
 import { PROTOCOL_VERSION } from "../../src/protocol/version.ts";
 
 const KIND = "data-tool-summary";
-const CALL = "call_studies";
-const TOOL = "search_eda_studies";
-const LINE = "3 studies matched heat shock";
+const CALL = "call_rows";
+const TOOL = "fetch_rows";
+const LINE = "3 rows matched the filter";
 
-const INPUT = { query: "heat shock", limit: 5 };
-const OUTPUT = { studies: 3 };
+const INPUT = { query: "example", limit: 5 };
+const OUTPUT = { rows: 3 };
 
 function lifecycle(): ProtocolChunk[] {
   return [
@@ -69,7 +69,7 @@ describe("section 6.3, a tool that says what it did", () => {
   it("keeps the last summary when a call carries two", () => {
     const message = reduceTurn([
       ...lifecycle(),
-      summary("no study matched heat shock", "empty"),
+      summary("no row matched the filter", "empty"),
       summary(LINE, "ok"),
     ]);
 
@@ -103,10 +103,7 @@ describe("section 6.3, a tool that says what it did", () => {
 
   it("defaults the status to ok, and reads empty when the chunk says so", () => {
     const plain = reduceTurn([...lifecycle(), summary(LINE)]);
-    const empty = reduceTurn([
-      ...lifecycle(),
-      summary("No study matched dhps", "empty"),
-    ]);
+    const empty = reduceTurn([...lifecycle(), summary("No row matched", "empty")]);
 
     expect(only(plain.parts).summaryStatus).toBe("ok");
     expect(only(empty.parts).summaryStatus).toBe("empty");

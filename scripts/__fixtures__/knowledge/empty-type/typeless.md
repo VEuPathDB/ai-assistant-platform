@@ -1,0 +1,6 @@
+---
+type:
+title: Typeless
+---
+
+# Typeless

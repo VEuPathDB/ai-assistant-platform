@@ -1,6 +1,6 @@
 [project]
 name = "assistant-core"
-version = "0.2.0a2"
+version = "0.2.0a4"
 description = "The assistant runtime: turns, streaming, checkpoints, memory"
 requires-python = ">=3.14"
 dependencies = [
@@ -25,6 +25,14 @@ dependencies = [
     "opentelemetry-api>=1.39.0",
 ]
 
+[project.optional-dependencies]
+# Input screening runs an ONNX classifier over the user's text. An assistant
+# that screens nothing does not carry the runtime or the tokenizer.
+screening = [
+    "onnxruntime>=1.19.0",
+    "tokenizers>=0.21.0",
+]
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
@@ -34,6 +42,8 @@ packages = ["src/assistant_core"]
 
 [dependency-groups]
 dev = [
+    # The suite imports every module, so it installs the screening extra.
+    "assistant-core[screening]",
     # The in-process MCP server the tool-source suite runs against. The
     # client half already arrives with pydantic-ai; only the server is extra.
     "fastmcp-slim[server]>=3.3.0,<4",
@@ -89,6 +99,9 @@ max-returns = 6
 max-branches = 10
 
 [tool.ruff.lint.per-file-ignores]
+"src/assistant_core/capabilities/piguard.py" = [
+    "S106",  # pad_token="[PAD]" is tokenizer configuration, not a password
+]
 "tests/**" = [
     "S101",
     "S105",

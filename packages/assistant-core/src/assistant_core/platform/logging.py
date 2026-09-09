@@ -17,6 +17,9 @@ from assistant_core.platform.context import (
     user_id_ctx,
 )
 
+QUIET_LOGGERS = ("httpx", "httpcore")
+UVICORN_LOGGERS = ("uvicorn", "uvicorn.error", "uvicorn.access")
+
 
 def add_request_id(
     logger: logging.Logger, _method_name: str, event_dict: EventDict
@@ -113,22 +116,21 @@ def setup_logging() -> None:
         )
     )
 
+    # The handler replaces whatever is on the root, so a second call to this
+    # function leaves one handler and the process logs each line once.
     root_logger = logging.getLogger()
-    root_logger.addHandler(handler)
+    root_logger.handlers = [handler]
     root_logger.setLevel(settings.log_level)
 
-    # Quiet noisy loggers
-    logging.getLogger("httpx").setLevel(logging.WARNING)
-    logging.getLogger("httpcore").setLevel(logging.WARNING)
-    # Surface uvicorn request lines (and 4xx/5xx) in `docker logs`.
-    # uvicorn ships with propagate=False; flip it so events reach the root
-    # handler we just installed.
-    for name in ("uvicorn", "uvicorn.error", "uvicorn.access"):
-        uv_logger = logging.getLogger(name)
-        uv_logger.setLevel(logging.INFO)
-        uv_logger.propagate = True
-        # Drop uvicorn's own stderr handlers so we don't double-log.
-        uv_logger.handlers.clear()
+    for name in QUIET_LOGGERS:
+        logging.getLogger(name).setLevel(logging.WARNING)
+    # uvicorn ships with propagation off, so its request lines need it flipped,
+    # and its own handlers dropped so one line is not rendered twice.
+    for name in UVICORN_LOGGERS:
+        served = logging.getLogger(name)
+        served.setLevel(logging.INFO)
+        served.propagate = True
+        served.handlers.clear()
 
 
 def get_logger(name: str) -> structlog.BoundLogger:

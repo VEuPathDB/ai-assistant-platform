@@ -108,7 +108,7 @@ describe("a resume of a message the client already holds", () => {
     expect(probe.chat.messages[0]?.parts).toEqual([
       {
         type: "data-background-task-started",
-        data: { taskId: TASK, toolName: "optimize_search_parameters" },
+        data: { taskId: TASK, toolName: "add" },
       },
       { type: "data-task-progress", id: TASK, data: { taskId: TASK, percent: 0.9 } },
       { type: "data-task-completed", data: { taskId: TASK, status: "success" } },
@@ -195,7 +195,7 @@ describe("a resume of a message the client already holds", () => {
     const earlier: UIMessage = {
       id: EARLIER,
       role: "assistant",
-      parts: [{ type: "text", text: "Ninety-one genes.", state: "done" }],
+      parts: [{ type: "text", text: "Ninety-one rows.", state: "done" }],
     };
     const probe = harness({
       thread: logOf([...COMPLETED_TURN, ...SUSPENDING_TURN, ...GAP_AND_CONTINUATION]),
@@ -224,7 +224,7 @@ describe("a resume of a message the client already holds", () => {
     const thread = logOf(COMPLETED_TURN);
     const probe = harness({ thread, post: thread });
 
-    await probe.chat.sendMessage({ text: "how many genes" });
+    await probe.chat.sendMessage({ text: "how many rows" });
     await probe.resume();
 
     expect(probe.urls).toEqual([

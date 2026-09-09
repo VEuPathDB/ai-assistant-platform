@@ -4,8 +4,7 @@ import json
 from dataclasses import dataclass, field
 from typing import Any, cast
 
-Part = dict[str, Any]
-Chunk = dict[str, Any]
+from assistant_core.conversation import Part
 
 
 @dataclass

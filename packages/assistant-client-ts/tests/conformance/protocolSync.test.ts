@@ -17,7 +17,7 @@ describe("the vendored protocol capture", () => {
   });
 
   it("names the protocol version the document declares", () => {
-    expect(captured.version).toBe("1.7.0");
+    expect(captured.version).toBe("1.7.1");
   });
 
   it("carries one example per kind the reference assistant produces", () => {
@@ -32,6 +32,21 @@ describe("the vendored protocol capture", () => {
 
     expect(shared).toEqual([]);
     expect(core.size).toBeGreaterThan(0);
+  });
+
+  it("names no product extension, because a host documents its own", () => {
+    expect(captured.request.extensionFields).toEqual([]);
+  });
+
+  it("reads the extension rows a host adds, and none when it adds none", () => {
+    const source = readFileSync(PROTOCOL_PATH, "utf8");
+    const extended = source.replace(
+      "<!-- request_extensions:end -->",
+      "| `hostField` | string | What this host adds. |\n\n<!-- request_extensions:end -->",
+    );
+
+    expect(extractProtocol(extended).request.extensionFields).toEqual(["hostField"]);
+    expect(extractProtocol(source).request.extensionFields).toEqual([]);
   });
 
   it("captures a request example the client can send back", () => {

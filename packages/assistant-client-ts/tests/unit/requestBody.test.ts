@@ -40,9 +40,9 @@ describe("buildTurnRequestBody", () => {
   });
 
   it("adds the host's own fields", () => {
-    const body = buildTurnRequestBody({ ...base, extra: { siteId: "plasmodb" } });
+    const body = buildTurnRequestBody({ ...base, extra: { siteId: "example-site" } });
 
-    expect(body["siteId"]).toBe("plasmodb");
+    expect(body["siteId"]).toBe("example-site");
   });
 
   it("omits a host field the host had nothing to say about", () => {
@@ -60,10 +60,10 @@ describe("buildTurnRequestBody", () => {
   it("keeps a non-empty map", () => {
     const body = buildTurnRequestBody({
       ...base,
-      extra: { phaseModels: { lead: "openai:gpt-5.6-luna" } },
+      extra: { phaseModels: { review: "openai:gpt-5.6-luna" } },
     });
 
-    expect(body["phaseModels"]).toEqual({ lead: "openai:gpt-5.6-luna" });
+    expect(body["phaseModels"]).toEqual({ review: "openai:gpt-5.6-luna" });
   });
 
   it("keeps a falsy scalar, which is a value and not an absence", () => {

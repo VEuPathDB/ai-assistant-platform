@@ -1,6 +1,6 @@
 {
   "name": "@pathfinder/assistant-client",
-  "version": "0.2.0-alpha.2",
+  "version": "0.2.0-alpha.3",
   "description": "A headless client for the assistant runtime wire protocol",
   "type": "module",
   "scripts": {

@@ -14,25 +14,6 @@ WHEEL_ENTRY = "assistant_core/PROTOCOL.md"
 # working directory or a file the command names.
 
 
-@pytest.fixture(scope="module")
-def workspace(tmp_path_factory: pytest.TempPathFactory) -> Path:
-    work = tmp_path_factory.mktemp("packaging").resolve()
-    (work / "project").symlink_to(PROJECT_ROOT)
-    subprocess.run(
-        ["/usr/bin/env", "uv", "build", "--project", "project", "--out-dir", "dist"],
-        cwd=work,
-        check=True,
-    )
-    return work
-
-
-@pytest.fixture(scope="module")
-def built_wheel(workspace: Path) -> Path:
-    wheels = sorted((workspace / "dist").glob("*.whl"))
-    assert len(wheels) == 1, f"expected one wheel, found {wheels}"
-    return wheels[0]
-
-
 @pytest.mark.wheel
 def test_the_wheel_holds_the_wire_document(built_wheel: Path) -> None:
     """The document is packed beside the package that serves the wire."""

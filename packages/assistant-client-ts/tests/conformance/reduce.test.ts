@@ -318,7 +318,7 @@ describe("section 6, error is not a turn's verdict", () => {
       turn(
         { type: "start", messageId: "a1" },
         { type: "text-start", id: "t" },
-        { type: "text-delta", id: "t", delta: "Looking at PlasmoDB kinases" },
+        { type: "text-delta", id: "t", delta: "Looking at the rows" },
         { type: "text-end", id: "t" },
         { type: "error", errorText },
         { type: "data-turn-failed", data: { errorText } },
@@ -327,7 +327,7 @@ describe("section 6, error is not a turn's verdict", () => {
     );
 
     expect(message.parts).toEqual([
-      { type: "text", text: "Looking at PlasmoDB kinases", state: "done" },
+      { type: "text", text: "Looking at the rows", state: "done" },
       { type: "data-turn-failed", data: { errorText } },
     ]);
     expect(message.errors).toEqual([errorText]);

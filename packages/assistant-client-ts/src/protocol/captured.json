@@ -1,5 +1,5 @@
 {
-  "version": "1.7.0",
+  "version": "1.7.1",
   "chunkKinds": [
     "start",
     "start-step",
@@ -68,17 +68,15 @@
       "phaseModels",
       "phaseReasoning"
     ],
-    "extensionFields": [
-      "experimentId"
-    ],
+    "extensionFields": [],
     "examples": [
       {
         "kind": "submit-message",
-        "json": "{\n  \"conversationId\": \"3f1a6f4e-2c3b-4d5e-8a7b-9c0d1e2f3a4b\",\n  \"id\": \"7c9e6679-7425-40de-944b-e07fc1f90ae7\",\n  \"trigger\": \"submit-message\",\n  \"siteId\": \"plasmodb\",\n  \"mode\": \"strategy\",\n  \"messages\": [\n    {\n      \"id\": \"b1d0f6b2-7d0e-4a1e-9f3c-1a2b3c4d5e6f\",\n      \"role\": \"user\",\n      \"parts\": [{ \"type\": \"text\", \"text\": \"which sites do you serve\" }]\n    }\n  ]\n}"
+        "json": "{\n  \"conversationId\": \"3f1a6f4e-2c3b-4d5e-8a7b-9c0d1e2f3a4b\",\n  \"id\": \"7c9e6679-7425-40de-944b-e07fc1f90ae7\",\n  \"trigger\": \"submit-message\",\n  \"siteId\": \"example-site\",\n  \"mode\": \"default\",\n  \"messages\": [\n    {\n      \"id\": \"b1d0f6b2-7d0e-4a1e-9f3c-1a2b3c4d5e6f\",\n      \"role\": \"user\",\n      \"parts\": [{ \"type\": \"text\", \"text\": \"what can you do\" }]\n    }\n  ]\n}"
       },
       {
         "kind": "approval-response",
-        "json": "{\n  \"conversationId\": \"3f1a6f4e-2c3b-4d5e-8a7b-9c0d1e2f3a4b\",\n  \"id\": \"1b4e28ba-2fa1-11d2-883f-0016d3cca427\",\n  \"trigger\": \"submit-message\",\n  \"siteId\": \"plasmodb\",\n  \"messages\": [\n    {\n      \"id\": \"b1d0f6b2-7d0e-4a1e-9f3c-1a2b3c4d5e6f\",\n      \"role\": \"user\",\n      \"parts\": [{ \"type\": \"text\", \"text\": \"clear the strategy\" }]\n    },\n    {\n      \"id\": \"c2e1a7c3-8e1f-4b2f-a04d-2b3c4d5e6f70\",\n      \"role\": \"assistant\",\n      \"parts\": [\n        {\n          \"type\": \"tool-clear_strategy\",\n          \"toolCallId\": \"call_clear\",\n          \"state\": \"approval-responded\",\n          \"input\": {},\n          \"approval\": {\n            \"id\": \"approval_clear\",\n            \"approved\": true\n          }\n        }\n      ]\n    }\n  ]\n}"
+        "json": "{\n  \"conversationId\": \"3f1a6f4e-2c3b-4d5e-8a7b-9c0d1e2f3a4b\",\n  \"id\": \"1b4e28ba-2fa1-11d2-883f-0016d3cca427\",\n  \"trigger\": \"submit-message\",\n  \"siteId\": \"example-site\",\n  \"messages\": [\n    {\n      \"id\": \"b1d0f6b2-7d0e-4a1e-9f3c-1a2b3c4d5e6f\",\n      \"role\": \"user\",\n      \"parts\": [{ \"type\": \"text\", \"text\": \"clear the workspace\" }]\n    },\n    {\n      \"id\": \"c2e1a7c3-8e1f-4b2f-a04d-2b3c4d5e6f70\",\n      \"role\": \"assistant\",\n      \"parts\": [\n        {\n          \"type\": \"tool-clear_workspace\",\n          \"toolCallId\": \"call_clear\",\n          \"state\": \"approval-responded\",\n          \"input\": {},\n          \"approval\": {\n            \"id\": \"approval_clear\",\n            \"approved\": true\n          }\n        }\n      ]\n    }\n  ]\n}"
       }
     ]
   },

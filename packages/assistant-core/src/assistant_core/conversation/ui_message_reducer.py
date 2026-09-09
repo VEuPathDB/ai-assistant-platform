@@ -5,8 +5,9 @@ from typing import Any
 
 from pydantic import ConfigDict
 
+from assistant_core.conversation import Chunk
 from assistant_core.conversation._chunk_handlers import _apply_chunk
-from assistant_core.conversation._chunk_state import Chunk, _new_state
+from assistant_core.conversation._chunk_state import _new_state
 from assistant_core.platform.pydantic_base import CamelModel
 
 # Section 6: a turn that ends any other way sends its message nothing more.

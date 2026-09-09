@@ -30,7 +30,7 @@ from assistant_core.platform.context import DEFAULT_APPLICATION_ID, calling_appl
 APPLICATION_ID_LENGTH = 64
 ASSISTANT_ID_LENGTH = 64
 # The assistant a thread takes when its creator names none.
-DEFAULT_ASSISTANT_ID = "pathfinder"
+DEFAULT_ASSISTANT_ID = "default"
 
 
 def application_id_column() -> MappedColumn[str]:

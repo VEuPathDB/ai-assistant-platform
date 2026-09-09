@@ -3,7 +3,10 @@ import { describe, expect, it } from "vitest";
 import { type MessagePart } from "../../src/core/message.ts";
 import { type Trace, buildTrace } from "../../src/core/trace.ts";
 
-const FIGURES: ReadonlySet<string> = new Set(["data-gene-set", "data-strategy-link"]);
+const FIGURES: ReadonlySet<string> = new Set([
+  "data-example.rows",
+  "data-example.link",
+]);
 
 function runs(parts: readonly MessagePart[]): Trace[] {
   return buildTrace(parts, { renderingKinds: FIGURES });
@@ -31,11 +34,7 @@ function text(body: string): MessagePart {
 
 describe("buildTrace run boundaries", () => {
   it("closes the open run on a text part", () => {
-    const traces = runs([
-      call("get_strategy", "c1"),
-      text("Done."),
-      call("think", "c2"),
-    ]);
+    const traces = runs([call("echo", "c1"), text("Done."), call("think", "c2")]);
 
     expect(traces).toHaveLength(2);
     expect(traces.map((run) => run.rowCount)).toEqual([1, 1]);
@@ -43,7 +42,7 @@ describe("buildTrace run boundaries", () => {
 
   it("keeps the run open across a reasoning part", () => {
     const traces = runs([
-      call("get_strategy", "c1"),
+      call("echo", "c1"),
       { type: "reasoning", text: "weighing it", state: "done" },
       call("think", "c2"),
     ]);
@@ -54,7 +53,7 @@ describe("buildTrace run boundaries", () => {
 
   it("keeps the run open across a text part that carries nothing", () => {
     const traces = runs([
-      call("get_strategy", "c1"),
+      call("echo", "c1"),
       { type: "text", text: "", state: "done" },
       call("think", "c2"),
     ]);
@@ -65,7 +64,7 @@ describe("buildTrace run boundaries", () => {
 
   it("closes nothing on a turn-status part", () => {
     const traces = runs([
-      call("get_strategy", "c1"),
+      call("echo", "c1"),
       { type: "data-turn-status", data: { label: "Thinking...", waitingOnLlm: true } },
       call("think", "c2"),
     ]);
@@ -76,7 +75,7 @@ describe("buildTrace run boundaries", () => {
 
   it("closes nothing on a step-start part", () => {
     const traces = runs([
-      call("get_strategy", "c1"),
+      call("echo", "c1"),
       { type: "step-start" },
       call("think", "c2"),
     ]);
@@ -90,7 +89,7 @@ describe("buildTrace run boundaries", () => {
   });
 
   it("opens no run for a trailing text part after the last run", () => {
-    const traces = runs([call("get_strategy", "c1"), text("That is all.")]);
+    const traces = runs([call("echo", "c1"), text("That is all.")]);
 
     expect(traces).toHaveLength(1);
     expect(at(traces, 0).rowCount).toBe(1);

@@ -33,12 +33,17 @@ function section(markdown: string, name: string): string {
   return markdown.slice(from + begin.length, to);
 }
 
-function tableKeys(table: string, label: string): string[] {
+function tableRowKeys(table: string): string[] {
   const keys: string[] = [];
   for (const line of table.split("\n")) {
     const match = /^\|\s*`([^`]+)`\s*\|/.exec(line.trim());
     if (match?.[1] !== undefined) keys.push(match[1]);
   }
+  return keys;
+}
+
+function tableKeys(table: string, label: string): string[] {
+  const keys = tableRowKeys(table);
   if (keys.length === 0) {
     throw new ProtocolExtractionError(`PROTOCOL.md ${label} table names nothing`);
   }
@@ -86,10 +91,9 @@ function extractExamples(markdown: string, name: string): CapturedExample[] {
 function extractRequest(markdown: string): CapturedRequest {
   return {
     coreFields: tableKeys(section(markdown, "request_core"), "request core field"),
-    extensionFields: tableKeys(
-      section(markdown, "request_extensions"),
-      "request extension field",
-    ),
+    // The extension table is the one table a document may leave empty: the
+    // fields it would name belong to a host, not to this protocol.
+    extensionFields: tableRowKeys(section(markdown, "request_extensions")),
     examples: extractExamples(markdown, "request_examples"),
   };
 }

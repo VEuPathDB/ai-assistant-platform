@@ -1,6 +1,6 @@
 # The assistant runtime wire protocol
 
-**Version 1.7.0.** This document specifies the bytes a client exchanges with an
+**Version 1.7.1.** This document specifies the bytes a client exchanges with an
 assistant built on `assistant_core`. It is written so a consumer in any
 language can implement a client from this page alone, with no reference to the
 JavaScript SDK that inspired the chunk vocabulary. Section 14 records what each
@@ -682,15 +682,15 @@ it may carry the stream-recorded `resultProviderMetadata` and the `summary` and
 thread from the snapshot sends them back verbatim, and the runtime MUST ignore
 them rather than refuse the turn.
 
-**Product extensions.** Fields this deployment's assistant adds. A client for
-another assistant does not send them, and this runtime ignores what it does not
-define.
+**Product extensions.** Fields an assistant adds for itself. This document
+names none: a host documents the extensions its own assistant reads, and this
+runtime ignores every field it does not define. A client for another assistant
+does not send them.
 
 <!-- request_extensions:begin -->
 
 | Field | Type | Meaning |
 | --- | --- | --- |
-| `experimentId` | string | The PathFinder experiment this thread records against. |
 
 <!-- request_extensions:end -->
 
@@ -756,13 +756,13 @@ it does not know; the fix is to read the thread's assistant, not to retry.
   "conversationId": "3f1a6f4e-2c3b-4d5e-8a7b-9c0d1e2f3a4b",
   "id": "7c9e6679-7425-40de-944b-e07fc1f90ae7",
   "trigger": "submit-message",
-  "siteId": "plasmodb",
-  "mode": "strategy",
+  "siteId": "example-site",
+  "mode": "default",
   "messages": [
     {
       "id": "b1d0f6b2-7d0e-4a1e-9f3c-1a2b3c4d5e6f",
       "role": "user",
-      "parts": [{ "type": "text", "text": "which sites do you serve" }]
+      "parts": [{ "type": "text", "text": "what can you do" }]
     }
   ]
 }
@@ -775,19 +775,19 @@ it does not know; the fix is to read the thread's assistant, not to retry.
   "conversationId": "3f1a6f4e-2c3b-4d5e-8a7b-9c0d1e2f3a4b",
   "id": "1b4e28ba-2fa1-11d2-883f-0016d3cca427",
   "trigger": "submit-message",
-  "siteId": "plasmodb",
+  "siteId": "example-site",
   "messages": [
     {
       "id": "b1d0f6b2-7d0e-4a1e-9f3c-1a2b3c4d5e6f",
       "role": "user",
-      "parts": [{ "type": "text", "text": "clear the strategy" }]
+      "parts": [{ "type": "text", "text": "clear the workspace" }]
     },
     {
       "id": "c2e1a7c3-8e1f-4b2f-a04d-2b3c4d5e6f70",
       "role": "assistant",
       "parts": [
         {
-          "type": "tool-clear_strategy",
+          "type": "tool-clear_workspace",
           "toolCallId": "call_clear",
           "state": "approval-responded",
           "input": {},
@@ -853,6 +853,7 @@ data: {"type":"done","reason":"completed"}
 
 | Version | What it added |
 | --- | --- |
+| `1.7.1` | Section 12.2's product-extension table is empty: the document names no host's own request field, and says a host documents the extensions its assistant reads. Before this the table carried one deployment's field, so a reader took a product's extension for part of the wire. The request examples carry a neutral site, mode and tool name for the same reason. |
 | `1.7.0` | The snapshot carries `openMessage` (sections 2, 4): the `messageId` of the message its last turn left open and the exclusive cursor a tail replays it from. Before this a client that had lost its cursor could recover the thread but not its resume point, so it tailed from `0` mid-turn. Section 4 also states the second tail a client opens across a durable gap, because a tail ends at the first `done` it serves. |
 | `1.6.1` | Section 4 states how a client resumes a message a turn left open: from a cursor before that message's `start`, dropping what the tail delivers before it, so the message is rebuilt whole. Before this the section named only the last observed cursor, and a reader that resumed from one met the gap's chunks of section 6.1 with no `start` to place them on. |
 | `1.6.0` | `data-lead-usage` and `data-sub-agent-call` carry `contextTokens` and `contextWindow`: the input size of the agent's latest request, and the model's context window. Both are optional and 0 means unknown. Before this the parts carried cumulative `tokens` only, so a client could not show how full an agent's window was, and history the runtime sheds mid-run was invisible. |

@@ -10,6 +10,14 @@ science.
 | `packages/assistant-client-ts/` | `@pathfinder/assistant-client` | - |
 | `packages/mcp-conformance/` | `veupathdb-mcp-conformance` | `mcp_conformance` |
 
+## The `screening` extra
+
+`assistant-core[screening]` adds the ONNX runtime and the tokenizer that
+`assistant_core.capabilities.input_screening` needs. A host that screens user
+text before an agent reads it declares the extra and tells the scanner which
+directory holds the model; an assistant that screens nothing declares plain
+`assistant-core` and carries neither wheel.
+
 ## One Yarn project, one lock
 
 This folder is its own Yarn project: `package.json` declares
@@ -74,11 +82,19 @@ yarn install --immutable
 cd packages/assistant-core        && uv sync --frozen && uv run ruff check src tests && uv run ruff format --check src tests && uv run mypy --strict src && uv run pytest && uv run pytest tests/packaging -m wheel --override-ini addopts=''
 cd packages/assistant-client-ts   && yarn typecheck && yarn lint && yarn format:check && yarn test && yarn build
 cd packages/mcp-conformance       && uv sync --frozen && uv run ruff check src tests && uv run mypy --strict src && uv run pytest
+node scripts/check-knowledge.mjs  && node --test scripts/check-knowledge.test.mjs
 ```
 
-Those three lanes are what `.github/workflows/ci.yml` runs, command for command.
+Those four lanes are what `.github/workflows/ci.yml` runs, command for command.
 `.pre-commit-config.yaml` carries the same checks as hooks, and leaves the wheel
 check and the integration half of the runtime suite to CI.
 
 `assistant-core`'s suite runs with **no** application installed; that is what
 makes the boundary an installation fact rather than a lint rule.
+
+## docs/knowledge is the durable record
+
+[`docs/knowledge/`](docs/knowledge/index.md) holds the choices behind this
+repository, in Open Knowledge Format v0.2. `scripts/check-knowledge.mjs` is its
+gate: every page carries a `type`, every relative link resolves, and every page
+is linked from its directory's index.

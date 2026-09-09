@@ -137,7 +137,7 @@ describe("section 2, a snapshot rebuilds the whole conversation", () => {
     // envelope again, a second answer.
     const replayed = "43f33eec-e6d5-44bb-b6d3-b367e7dfc888";
     const messages = reduceSnapshot([
-      userEnvelope(replayed, "find kinase drug targets"),
+      userEnvelope(replayed, "find the matching rows"),
       { type: "start", messageId: "5e47a007-a91b-4f64-af61-9216871155c2" },
       { type: "text-start", id: "t1" },
       { type: "text-delta", id: "t1", delta: "first attempt" },
@@ -145,7 +145,7 @@ describe("section 2, a snapshot rebuilds the whole conversation", () => {
       { type: "error", errorText: "combine node needs an operator" },
       { type: "finish", finishReason: "stop" },
       { type: "done" },
-      userEnvelope(replayed, "find kinase drug targets"),
+      userEnvelope(replayed, "find the matching rows"),
       { type: "start", messageId: "1d25d96f-53e0-4154-a1c9-1454efb439f6" },
       { type: "text-start", id: "t2" },
       { type: "text-delta", id: "t2", delta: "second attempt" },
@@ -160,7 +160,7 @@ describe("section 2, a snapshot rebuilds the whole conversation", () => {
       "1d25d96f-53e0-4154-a1c9-1454efb439f6",
     ]);
     expect(messages[0]?.parts).toEqual([
-      { type: "text", text: "find kinase drug targets" },
+      { type: "text", text: "find the matching rows" },
     ]);
     expect(messages[2]?.parts).toEqual([
       { type: "text", text: "second attempt", state: "done" },

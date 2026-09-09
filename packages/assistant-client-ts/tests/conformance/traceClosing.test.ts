@@ -38,8 +38,8 @@ function dispatch(key: string, done: boolean): MessagePart {
     id: key,
     data: {
       toolCallId: key,
-      subAgent: "verify_strategy",
-      phase: "verification",
+      subAgent: "checker",
+      phase: "review",
       state: done ? "completed" : "started",
     },
   };
@@ -60,7 +60,7 @@ describe("buildTrace closes the dispatches a turn left open", () => {
   };
   const started = (): MessagePart[] => [
     dispatch("sa_9", false),
-    step({ toolCallId: "s1", toolName: "get_estimated_size", args: { step: 132 } }),
+    step({ toolCallId: "s1", toolName: "fetch_rows", args: { id: 132 } }),
   ];
 
   it("leaves an open dispatch started while the turn still runs", () => {
@@ -97,7 +97,7 @@ describe("buildTrace closes the dispatches a turn left open", () => {
     const run = at(
       endedRuns([
         dispatch("sa_9", true),
-        step({ toolCallId: "s1", toolName: "get_estimated_size", args: {} }),
+        step({ toolCallId: "s1", toolName: "fetch_rows", args: {} }),
         STOPPED,
       ]),
       0,
@@ -134,7 +134,7 @@ describe("buildTrace closes the dispatches a turn left open", () => {
     const run = at(
       runs([
         dispatch("sa_9", false),
-        step({ toolCallId: "s1", toolName: "get_estimated_size", args: {} }),
+        step({ toolCallId: "s1", toolName: "fetch_rows", args: {} }),
         step({ toolCallId: "s1", state: "completed", resultSummary: "132 records" }),
         step({ toolCallId: "s2", toolName: "think", args: {} }),
         STOPPED,
@@ -146,7 +146,7 @@ describe("buildTrace closes the dispatches a turn left open", () => {
   });
 
   it("closes no lead group, which owns no dispatch state", () => {
-    const run = at(endedRuns([call("get_strategy", "c1"), STOPPED]), 0);
+    const run = at(endedRuns([call("echo", "c1"), STOPPED]), 0);
 
     expect(at(run.groups, 0).key).toBe("lead");
     expect(at(run.groups, 0).state).toBe("started");

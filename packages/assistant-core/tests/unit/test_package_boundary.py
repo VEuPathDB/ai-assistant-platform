@@ -20,6 +20,9 @@ import assistant_core
 
 CORE = assistant_core.__name__
 
+# The runtime serves any assistant, so its text names no host application.
+HOST_APPLICATION = "pathfinder"
+
 # The payloads the wire carries are model declarations, so they reach the
 # model library and nothing else.
 STREAM_PART_PAYLOAD_MODULES = {
@@ -84,6 +87,15 @@ def test_no_runtime_module_imports_the_science(module: ModuleType) -> None:
     }
 
     assert reached == set()
+
+
+@pytest.mark.parametrize("module", _core_modules(), ids=lambda m: m.__name__)
+def test_no_runtime_module_names_the_host_application(module: ModuleType) -> None:
+    path = module.__file__
+    assert path is not None
+    source = Path(path).read_text().lower()
+
+    assert HOST_APPLICATION not in source
 
 
 def _distributions(names: set[str]) -> set[str]:

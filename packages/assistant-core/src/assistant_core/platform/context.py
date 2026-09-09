@@ -5,7 +5,7 @@ from uuid import UUID
 
 # The application a call acts as when it names none. The value is also the
 # stored default of every application_id column.
-DEFAULT_APPLICATION_ID = "pathfinder"
+DEFAULT_APPLICATION_ID = "default"
 
 # Request ID for tracing
 request_id_ctx: ContextVar[str | None] = ContextVar("request_id", default=None)

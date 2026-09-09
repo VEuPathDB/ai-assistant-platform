@@ -36,7 +36,7 @@ export function logOf(payloads: unknown[]): LogEntry[] {
 export const COMPLETED_TURN = [
   { type: "start", messageId: EARLIER },
   { type: "text-start", id: "e1" },
-  { type: "text-delta", id: "e1", delta: "Ninety-one genes." },
+  { type: "text-delta", id: "e1", delta: "Ninety-one rows." },
   { type: "text-end", id: "e1" },
   { type: "finish", finishReason: "stop" },
   DONE_PAYLOAD,
@@ -46,7 +46,7 @@ export const SUSPENDING_TURN = [
   { type: "start", messageId: SUSPENDED },
   {
     type: "data-background-task-started",
-    data: { taskId: TASK, toolName: "optimize_search_parameters" },
+    data: { taskId: TASK, toolName: "add" },
   },
   { type: "finish", finishReason: "other" },
   DONE_PAYLOAD,
@@ -73,7 +73,7 @@ const RESUSPENDING_TURN = [
   { type: "start", messageId: RESUSPENDED },
   {
     type: "data-background-task-started",
-    data: { taskId: SECOND_TASK, toolName: "run_gene_set_enrichment" },
+    data: { taskId: SECOND_TASK, toolName: "fetch_rows" },
   },
   { type: "finish", finishReason: "other" },
   DONE_PAYLOAD,
@@ -270,7 +270,7 @@ export function heldSuspendedMessage(): UIMessage {
     parts: [
       {
         type: "data-background-task-started",
-        data: { taskId: TASK, toolName: "optimize_search_parameters" },
+        data: { taskId: TASK, toolName: "add" },
       },
     ],
   };

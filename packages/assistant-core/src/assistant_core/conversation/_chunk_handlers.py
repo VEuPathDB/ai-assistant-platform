@@ -4,9 +4,8 @@ from collections.abc import Callable
 
 from pydantic import ValidationError
 
+from assistant_core.conversation import Chunk, Part
 from assistant_core.conversation._chunk_state import (
-    Chunk,
-    Part,
     _apply_optional,
     _find_tool_part_by_id,
     _get_tool_invocation,
