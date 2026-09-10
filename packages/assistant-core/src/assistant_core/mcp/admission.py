@@ -3,7 +3,7 @@
 from collections import Counter
 from typing import Literal, Self
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, model_validator
 
 type CredentialMode = Literal["none", "service", "veupathdb_user"]
 type ApprovalPolicy = Literal["annotations", "always"]
@@ -30,6 +30,10 @@ class AdmittedSources(BaseModel):
 
     records: tuple[AdmissionRecord, ...] = ()
 
+    # The host installs one set for the process, so what it does not admit is
+    # a fact a reader needs once.
+    _named_absent: set[str] = PrivateAttr(default_factory=set)
+
     @model_validator(mode="after")
     def _refuse_repeated_source_ids(self) -> Self:
         counted = Counter(record.source_id for record in self.records)
@@ -38,6 +42,13 @@ class AdmittedSources(BaseModel):
             msg = f"a source id is admitted once: {', '.join(repeated)}"
             raise ValueError(msg)
         return self
+
+    def note_absent(self, source_id: str) -> bool:
+        """True the first time this set is asked for a source it does not admit."""
+        if source_id in self._named_absent:
+            return False
+        self._named_absent.add(source_id)
+        return True
 
     def resolve(self, source_id: str) -> AdmissionRecord | None:
         """The record admitting this id, or None when nothing admits it."""

@@ -50,8 +50,9 @@ from starlette.responses import JSONResponse
 from starlette.routing import Mount, Route
 from starlette.types import ASGIApp
 
-BEARER_A = "conformance-bearer-alpha"
-BEARER_B = "conformance-bearer-bravo"
+# Thirty-two opaque characters, the shape of a secret a deployment admits.
+BEARER_A = "h7qm2vzx9kd4tbnr6gsw5lpf8cyj3xqa"
+BEARER_B = "w3ndk8fpz5rlq7hvx2mgt6bcj9syd4uw"
 IDENTITY = {BEARER_A: "identity-a", BEARER_B: "identity-b"}
 
 STREAM_PART_META_KEY = "org.veupathdb.assistant/streamPart"

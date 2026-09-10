@@ -2,6 +2,33 @@
 
 ## 2026-09-10
 
+Three backlog items are closed and the backlog is empty. A tool source an
+assistant declares as optional and the deployment does not admit is now
+reported once, at INFO, naming the source id the deployment admits by. The set
+that answers the question remembers what it has already said is absent, so a
+host that installs one set for the process reads one line however many turns
+resolve it, whatever local names the assistants gave that source; a source
+declared required keeps its warning and its refusal on every turn. `assistant-core` is 0.3.0a5.
+
+The conformance suite holds its credentials in `SecretStr`. A check that errors
+renders a mask where pytest used to shorten the value, so there is nothing for
+a report to match on, and `redact` now takes out every run of a credential
+sixteen characters or longer, wherever in the text it sits, so a shortened
+value cannot carry one either. Sixteen is half the shortest secret a deployment
+admits, so a run that long is the credential and not prose, and the suite's own
+name survives a report. The suite refuses a bearer shorter than that secret
+before it opens a session, because no deployment could admit one, and an empty
+option reads as no bearer at all. `__version__` reads the distribution's own number
+instead of a second literal that had already drifted from it.
+`veupathdb-mcp-conformance` is 0.1.2.
+
+`scripts/check-knowledge.mjs` resolves a citation of another repository. A
+prefix names a checkout beside this one, a path that checkout does not have
+fails, and a citation is reported as unverified when there is no checkout to
+read. A citation written without the space after the colon fails on its form
+rather than passing unread. Three repositories share the script and its test; `ai-wdk-mcp` carries
+neither a bundle nor a scripts directory.
+
 The last two duplications the placement sweep left are decided rather than
 removed. `CamelModel` stays written in `assistant_core/platform/pydantic_base.py`
 and in `veupathdb/model.py`, and the testcontainers Postgres fixture stays

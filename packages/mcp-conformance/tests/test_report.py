@@ -9,14 +9,18 @@ from typing import Any
 import pytest
 from conftest import FamilyRunner, ServerFactory, account_hook
 from fixture_server import BEARER_A, BEARER_B, Defect
+from pydantic import SecretStr
 
+from mcp_conformance._options import ConformanceTarget
 from mcp_conformance._report import (
     REDACTED,
+    RUN_MINIMUM,
     AdmissionReport,
     CheckResult,
     FamilyResult,
     ReportAccumulator,
     ReportTarget,
+    redact,
     verdict_of,
 )
 
@@ -160,7 +164,7 @@ def test_the_report_never_carries_the_credential(
 def test_a_message_that_echoes_the_credential_is_redacted() -> None:
     accumulator = ReportAccumulator(
         target=ReportTarget(endpoint="http://server/mcp", credential="one"),
-        credentials=("s3cret-bearer",),
+        credentials=(SecretStr("s3cret-bearer"),),
     )
     nodeid = "src/mcp_conformance/test_shape.py::test_tool_names_are_unique"
     accumulator.assign(nodeid, "test_shape")
@@ -222,3 +226,119 @@ def test_the_report_leaves_the_schemas_out_of_its_tool_rows() -> None:
 
     assert isinstance(report, AdmissionReport)
     assert json.loads(report.rendered(()))["tools"] == []
+
+
+# Long enough that pytest shortens its repr, and made of no word the run writes
+# on its own, so any run of it found in the output is the credential.
+LEAKY_BEARER = "zq7wvxkj9mqz4wvx7tbn2hgs5rld8fpc" * 14
+
+_ERRORING_FAMILY = """
+import pytest
+
+
+@pytest.fixture
+def deployment(mcp_target):
+    raise RuntimeError("the runner named a deployment this check cannot read")
+
+
+def test_tool_names_are_unique(deployment):
+    assert True
+"""
+
+
+def _surviving_runs(text: str, credential: str) -> list[str]:
+    """Every run of the credential at the floor length still in the text.
+
+    A longer run contains one of these, so an empty answer is the whole rule.
+    """
+    return [
+        credential[index : index + RUN_MINIMUM]
+        for index in range(len(credential) - RUN_MINIMUM + 1)
+        if credential[index : index + RUN_MINIMUM] in text
+    ]
+
+
+def test_an_errored_check_carries_no_run_of_the_credential(
+    pytester: pytest.Pytester,
+) -> None:
+    """A fixture that raises renders its locals, and the target is one of them."""
+    pytester.makepyfile(test_shape=_ERRORING_FAMILY)
+
+    result = pytester.runpytest_subprocess(
+        "test_shape.py",
+        "--mcp-endpoint",
+        "http://server.invalid/mcp",
+        "--mcp-bearer",
+        LEAKY_BEARER,
+        "--mcp-report",
+        "report.json",
+        "--showlocals",
+        "-p",
+        "no:cacheprovider",
+    )
+
+    assert result.ret != 0
+    written = (Path(pytester.path) / "report.json").read_text()
+    assert '"outcome": "error"' in written
+    assert _surviving_runs(written, LEAKY_BEARER) == []
+    captured = result.stdout.str() + result.stderr.str()
+    assert _surviving_runs(captured, LEAKY_BEARER) == []
+
+
+def test_the_target_reads_its_credential_through_an_accessor_only() -> None:
+    target = ConformanceTarget(endpoint="http://server/mcp", bearer=LEAKY_BEARER)
+
+    assert LEAKY_BEARER not in repr(target)
+    assert LEAKY_BEARER not in str(target)
+
+    held = target.bearer
+    assert held is not None
+    assert held.get_secret_value() == LEAKY_BEARER
+    assert [value.get_secret_value() for value in target.credentials] == [LEAKY_BEARER]
+
+
+# Thirty-two characters, the shortest secret a deployment admits.
+ADMITTED_BEARER = SecretStr("zq7wvxkj9mqz4wvx7tbn2hgs5rld8fpc")
+
+
+def test_a_run_of_the_credential_is_redacted_wherever_it_sits() -> None:
+    """A shortened repr keeps a head and a tail, and both are the credential."""
+    value = ADMITTED_BEARER.get_secret_value()
+    text = f"{value[:24]}...{value[-16:]} answered"
+
+    redacted = redact(text, (ADMITTED_BEARER,))
+
+    assert redacted == f"{REDACTED}...{REDACTED} answered"
+    assert _surviving_runs(redacted, value) == []
+
+
+def test_a_run_shorter_than_the_floor_is_left_alone() -> None:
+    value = ADMITTED_BEARER.get_secret_value()
+    short = f"read {value[: RUN_MINIMUM - 1]} and {value[-(RUN_MINIMUM - 1) :]} only"
+
+    assert redact(short, (ADMITTED_BEARER,)) == short
+
+
+def test_the_floor_keeps_prose_and_takes_a_sixteen_character_run() -> None:
+    """A shared run of fifteen characters is prose; sixteen is the credential."""
+    value = ADMITTED_BEARER.get_secret_value()
+
+    prose = f'{{"name": "{value[:15]}-conformance"}}'
+    assert redact(prose, (ADMITTED_BEARER,)) == prose
+
+    leading = f"the server answered {value[:16]} to the call"
+    assert redact(leading, (ADMITTED_BEARER,)) == (
+        f"the server answered {REDACTED} to the call"
+    )
+
+    interior = f"the server answered {value[8:24]} to the call"
+    assert redact(interior, (ADMITTED_BEARER,)) == (
+        f"the server answered {REDACTED} to the call"
+    )
+
+
+def test_a_credential_shorter_than_the_floor_is_taken_out_whole() -> None:
+    """The floor holds back runs, never the value itself."""
+    credential = SecretStr("zq7wv")
+
+    assert redact("read zq7wv now", (credential,)) == f"read {REDACTED} now"

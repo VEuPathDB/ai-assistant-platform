@@ -25,8 +25,8 @@ Run one family with its module name: `pytest --pyargs mcp_conformance.test_shape
 | Option | Meaning |
 |---|---|
 | `--mcp-endpoint` | The streamable-HTTP MCP endpoint under test. Without it every family skips. |
-| `--mcp-bearer` | The credential the calls carry. |
-| `--mcp-bearer-second` | A second identity, which turns on the isolation check. |
+| `--mcp-bearer` | The credential the calls carry. A value shorter than 32 characters is refused, because no deployment admits a secret that short. |
+| `--mcp-bearer-second` | A second identity, which turns on the isolation check. Held to the same 32 character minimum. |
 | `--mcp-report` | Where the admission report JSON is written. |
 | `--mcp-sample-args` | JSON object, or a path to one, mapping a tool name to the arguments a call may use. Tools that need no arguments are called without it. |
 | `--mcp-slow-tool` | The tool the timeout family drives past its budget. |
@@ -75,11 +75,15 @@ that is not isolation.
 
 `--mcp-report` writes the admission record: what answered, what it declared,
 and what each family settled. Credentials are redacted from every message the
-report carries.
+report carries, and so is any run of one sixteen characters or longer, so a
+value some other tool shortened cannot survive in a message either. Sixteen is
+half the shortest secret a deployment admits, so ordinary output keeps its
+words. The suite holds a credential in a type that masks itself, so a check
+that errors renders the mask.
 
 ```json
 {
-  "suite": { "name": "veupathdb-mcp-conformance", "version": "0.1.0" },
+  "suite": { "name": "veupathdb-mcp-conformance", "version": "0.1.2" },
   "generatedAt": "2026-08-25T00:00:00+00:00",
   "verdict": "pass",
   "target": { "endpoint": "https://example.org/mcp", "credential": "one" },

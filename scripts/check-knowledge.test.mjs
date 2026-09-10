@@ -9,7 +9,10 @@ const FIXTURES = join(
   dirname(fileURLToPath(import.meta.url)),
   "__fixtures__/knowledge",
 );
-const errorsFor = (name) => collect(join(FIXTURES, name));
+const SIBLINGS = join(dirname(FIXTURES), "siblings");
+// A directory that does not exist: no checkout of any repository is beside it.
+const NO_SIBLINGS = join(dirname(FIXTURES), "no-siblings");
+const errorsFor = (name) => collect(join(FIXTURES, name), SIBLINGS).errors;
 const only = (name) => {
   const errors = errorsFor(name);
   assert.equal(errors.length, 1, `expected exactly one error, got ${errors}`);
@@ -21,7 +24,7 @@ test("a conformant bundle produces no errors", () => {
 });
 
 test("a relative bundle path behaves the same as an absolute one", () => {
-  assert.deepEqual(collect("scripts/__fixtures__/knowledge/clean"), []);
+  assert.deepEqual(collect("scripts/__fixtures__/knowledge/clean").errors, []);
 });
 
 test("a concept with no frontmatter is rejected", () => {
@@ -107,4 +110,42 @@ test("two occurrences on one line are both reported", () => {
 
 test("an accented proper name is not flagged", () => {
   assert.deepEqual(errorsFor("accented-name"), []);
+});
+
+test("a citation of another repository resolves against a sibling checkout", () => {
+  const found = collect(join(FIXTURES, "cross-repo-citation"), SIBLINGS);
+  assert.deepEqual(found, { errors: [], unverified: [] });
+});
+
+test("a citation of a page the sibling checkout does not have is rejected", () => {
+  const { errors } = collect(
+    join(FIXTURES, "cross-repo-citation-missing"),
+    SIBLINGS,
+  );
+  assert.deepEqual(errors, [
+    "gone.md: citation does not resolve -> pathfinder: docs/knowledge/decisions/no-such-page.md",
+  ]);
+});
+
+test("a citation written without a space after the colon is rejected", () => {
+  const { errors, unverified } = collect(
+    join(FIXTURES, "cross-repo-citation-unspaced"),
+    SIBLINGS,
+  );
+  assert.deepEqual(errors, [
+    "cites.md: citation needs a space after the colon -> pathfinder:docs/knowledge/decisions/a-page.md",
+  ]);
+  assert.deepEqual(unverified, []);
+});
+
+test("a citation without the sibling checkout is unverified, not failed", () => {
+  const { errors, unverified } = collect(
+    join(FIXTURES, "cross-repo-citation"),
+    NO_SIBLINGS,
+  );
+  assert.deepEqual(errors, []);
+  assert.deepEqual(unverified, [
+    "cites.md: no pathfinder checkout to read -> pathfinder: docs/knowledge/decisions/a-page.md",
+    "cites.md: no pathfinder checkout to read -> pathfinder: apps/api/thing.py",
+  ]);
 });

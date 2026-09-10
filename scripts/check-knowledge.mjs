@@ -15,6 +15,11 @@
  * House style (ours, not OKF):
  *   6. no em-dash, en-dash, unicode ellipsis or curly quotes in any .md
  *
+ * Citations (ours, not OKF):
+ *   7. a citation of another repository resolves against a checkout of it
+ *      beside this one, fails when that checkout has no such path, and is
+ *      reported as unverified when there is no such checkout
+ *
  * The spec tells *consumers* to tolerate broken links and missing indexes in
  * bundles they did not write. This is our own bundle, so a dangling link means
  * a file moved, and an unlinked concept means someone added or finished work
@@ -22,14 +27,29 @@
  * catch: it is what keeps "the backlog is empty" an honest statement rather
  * than an index that forgot a file.
  *
- * `collect()` returns errors and prints nothing, so the suite in
+ * `collect()` returns what it found and prints nothing, so the suite in
  * check-knowledge.test.mjs can drive it over fixtures. The CLI wrapper at the
  * bottom owns every console call and every exit code.
  */
 import { readFileSync, readdirSync, statSync, existsSync } from "node:fs";
 import { join, relative, dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
 const RESERVED = new Set(["index.md", "log.md"]);
+// A citation names another repository by the prefix the bundles write. The
+// value is the directory a checkout of it sits in.
+const SIBLING_DIRECTORIES = new Map([
+  ["pathfinder", "pathfinder"],
+  ["veupathdb-py", "ai-veupathdb-client"],
+  ["veupathdb-mcp", "ai-wdk-mcp"],
+  ["assistant-platform", "ai-assistant-platform"],
+]);
+// A repository prefix, a colon, a space and a path, inside an inline code span.
+// The backtick separates a citation from a sentence that starts with a word and
+// a colon; the space is captured, so a citation missing it is reported.
+const CITATION_RE = /`{1,2}([a-z][a-z0-9-]*):(\s*)([^`\s]+)/g;
+// The directory the checkouts share, which is the one above this repository.
+const SIBLINGS_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 // Escapes, not literal glyphs: the file must obey the rule it enforces, and
 // U+2018 against U+2019 is not a difference anyone can review by eye.
 const SMART_PUNCTUATION = new Map([
@@ -75,18 +95,19 @@ export function markdownFiles(bundle) {
   return existsSync(bundle) ? walk(bundle) : [];
 }
 
-export function collect(bundleArg) {
+export function collect(bundleArg, siblingsRoot = SIBLINGS_ROOT) {
   // Absolute, because link targets resolve to absolute paths and the walk must
   // produce keys that can match them. A relative argument otherwise reports
   // every concept as unlinked, which is silent and looks like real rot.
   const bundle = resolve(bundleArg);
   const errors = [];
+  const unverified = [];
   const linkedFromIndex = new Set();
   const files = markdownFiles(bundle);
 
   if (files.length === 0) {
     errors.push(`no markdown found under ${bundle}`);
-    return errors;
+    return { errors, unverified };
   }
 
   for (const file of files) {
@@ -132,6 +153,26 @@ export function collect(bundleArg) {
       if (name === "index.md") linkedFromIndex.add(resolved);
     }
 
+    for (const [, prefix, gap, target] of text.matchAll(CITATION_RE)) {
+      const directory = SIBLING_DIRECTORIES.get(prefix);
+      if (directory === undefined) continue;
+      if (gap === "") {
+        errors.push(
+          `${rel}: citation needs a space after the colon -> ${prefix}:${target}`,
+        );
+        continue;
+      }
+      // A citation may name a symbol after the path, or an anchor.
+      const [path] = target.split("#")[0].split(":");
+      if (path === "") continue;
+      const checkout = join(siblingsRoot, directory);
+      if (!existsSync(checkout)) {
+        unverified.push(`${rel}: no ${directory} checkout to read -> ${prefix}: ${path}`);
+      } else if (!existsSync(join(checkout, path))) {
+        errors.push(`${rel}: citation does not resolve -> ${prefix}: ${path}`);
+      }
+    }
+
     // The bundle states this rule about itself, in the House style section of
     // conventions/maintaining-this-bundle.md. A rule the bundle states about
     // itself and then does not check is the rot this script exists to catch: two
@@ -157,7 +198,7 @@ export function collect(bundleArg) {
     errors.push(`${rel}: not linked from ${owner}`);
   }
 
-  return errors;
+  return { errors, unverified };
 }
 
 const invokedDirectly = process.argv[1]?.endsWith("check-knowledge.mjs");
@@ -168,7 +209,11 @@ if (invokedDirectly) {
     console.error(`check-knowledge: no markdown found under ${bundle}`);
     process.exit(1);
   }
-  const errors = collect(bundle);
+  const { errors, unverified } = collect(bundle);
+  if (unverified.length > 0) {
+    console.log(`check-knowledge: ${unverified.length} citations UNVERIFIED`);
+    for (const line of unverified) console.log(`  ${line}`);
+  }
   if (errors.length > 0) {
     console.error("check-knowledge: FAILED");
     for (const error of errors) console.error(`  ${error}`);

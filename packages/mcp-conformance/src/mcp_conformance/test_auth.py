@@ -76,7 +76,7 @@ def test_no_credential_appears_in_any_answer(
         f"{text[:160]}"
         for text in mcp_auth_evidence.every_text
         for credential in (*mcp_target.credentials, WRONG_CREDENTIAL)
-        if credential in text
+        if credential.get_secret_value() in text
     ]
 
     assert leaked == []

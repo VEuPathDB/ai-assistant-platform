@@ -167,7 +167,7 @@ class ConformanceReportPlugin:
 def _report_target(target: ConformanceTarget | None) -> ReportTarget | None:
     if target is None:
         return None
-    held = len([value for value in (target.bearer, target.second_bearer) if value])
+    held = len(target.credentials)
     return ReportTarget(
         endpoint=target.endpoint,
         credential=("none", "one", "two")[held],

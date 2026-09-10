@@ -5,6 +5,8 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable, Sequence
 from typing import Any
 
+from pydantic import SecretStr
+
 from mcp_conformance._evidence import (
     AccountWindow,
     AnnotationEvidence,
@@ -39,7 +41,7 @@ AccountSnapshot = Callable[[], Awaitable[Sequence[str]]]
 BAD_ARGUMENT_VALUE = {"veupathdbMcpConformance": "a value this schema refuses"}
 
 # A credential no server issued. It travels only to be refused.
-WRONG_CREDENTIAL = "veupathdb-mcp-conformance-invalid-credential"
+WRONG_CREDENTIAL = SecretStr("veupathdb-mcp-conformance-invalid-credential")
 
 # The name the refusal probe uses when the server offers no tool to name.
 NO_TOOL = "conformance.no_tool_offered"

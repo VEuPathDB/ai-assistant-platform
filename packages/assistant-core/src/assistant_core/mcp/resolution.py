@@ -91,12 +91,7 @@ class ResolvedToolSources:
     async def _open(self, declaration: ToolSourceDeclaration) -> None:
         record = self.admitted.resolve(declaration.source_id)
         if record is None:
-            logger.warning(
-                "Tool source did not resolve",
-                tool_source=declaration.name,
-                source_id=declaration.source_id,
-                reason=_UNADMITTED,
-            )
+            self._report_unadmitted(declaration)
             self._refuse_if_required(declaration, _UNADMITTED)
             return
         toolset = wrap_source(
@@ -117,6 +112,25 @@ class ResolvedToolSources:
             self._refuse_if_required(declaration, f"{type(exc).__name__}: {exc}", exc)
             return
         self.by_name[declaration.name] = toolset
+
+    def _report_unadmitted(self, declaration: ToolSourceDeclaration) -> None:
+        """A required source warns every turn; an optional one is once per source id.
+
+        The line names the id the deployment admits by, not an assistant's local name.
+        """
+        if declaration.required:
+            logger.warning(
+                "Tool source did not resolve",
+                tool_source=declaration.name,
+                source_id=declaration.source_id,
+                reason=_UNADMITTED,
+            )
+            return
+        if self.admitted.note_absent(declaration.source_id):
+            logger.info(
+                "Tool source is not admitted in this deployment",
+                source_id=declaration.source_id,
+            )
 
     def _credential_for(self, record: AdmissionRecord) -> str | None:
         if record.credential_mode == "none":

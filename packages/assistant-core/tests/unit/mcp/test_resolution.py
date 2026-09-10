@@ -15,6 +15,7 @@ from uuid import uuid4
 import pytest
 from pydantic_ai.mcp import MCPToolset
 from pydantic_ai.toolsets import AbstractToolset, FunctionToolset, WrapperToolset
+from structlog.testing import capture_logs
 from tests.mcp_runtime import RefusingToolset
 from tests.mcp_server import (
     IN_PROCESS_ENDPOINT,
@@ -164,15 +165,64 @@ async def test_an_unadmitted_optional_source_resolves_absent() -> None:
     assert built == []
 
 
-async def test_an_unadmitted_required_source_refuses_the_turn() -> None:
-    sources = _sources(
-        (catalog_declaration(source_id="never-admitted", required=True),),
-        catalog_admitted(),
-    )
+async def test_an_unadmitted_optional_source_is_reported_once() -> None:
+    """The admitted set says a source is absent once, however many turns ask."""
+    admitted = catalog_admitted()
+    declarations = (catalog_declaration(source_id="never-admitted"),)
 
-    with pytest.raises(ToolSourceUnavailableError, match=SOURCE_NAME):
-        async with sources:
-            pass
+    with capture_logs() as logged:
+        for _ in range(2):
+            async with _sources(
+                declarations,
+                admitted,
+                build_toolset=lambda record, credential: FunctionToolset[Any](),
+            ):
+                pass
+
+    absent = [
+        entry
+        for entry in logged
+        if entry["event"] == "Tool source is not admitted in this deployment"
+    ]
+    assert [entry["log_level"] for entry in absent] == ["info"]
+    assert absent[0]["source_id"] == "never-admitted"
+
+
+async def test_the_absent_line_names_the_source_id_and_no_local_name() -> None:
+    """The memo answers per source id, so the line names nothing narrower."""
+    admitted = catalog_admitted()
+
+    with capture_logs() as logged:
+        for name in ("catalog_one", "catalog_two"):
+            async with _sources(
+                (catalog_declaration(name=name, source_id="never-admitted"),),
+                admitted,
+                build_toolset=lambda record, credential: FunctionToolset[Any](),
+            ):
+                pass
+
+    absent = [
+        entry
+        for entry in logged
+        if entry["event"] == "Tool source is not admitted in this deployment"
+    ]
+    assert [entry["source_id"] for entry in absent] == ["never-admitted"]
+    assert "tool_source" not in absent[0]
+
+
+async def test_an_unadmitted_required_source_warns_and_refuses_every_turn() -> None:
+    """A refused turn is worth a warning each time it is refused."""
+    admitted = catalog_admitted()
+    declarations = (catalog_declaration(source_id="never-admitted", required=True),)
+
+    with capture_logs() as logged:
+        for _ in range(2):
+            with pytest.raises(ToolSourceUnavailableError, match=SOURCE_NAME):
+                async with _sources(declarations, admitted):
+                    pass
+
+    assert [entry["log_level"] for entry in logged] == ["warning", "warning"]
+    assert [entry["event"] for entry in logged] == ["Tool source did not resolve"] * 2
 
 
 async def test_an_optional_source_that_cannot_connect_resolves_absent() -> None:

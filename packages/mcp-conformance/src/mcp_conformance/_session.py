@@ -18,6 +18,7 @@ from mcp.types import (
     Implementation,
     TextContent,
 )
+from pydantic import SecretStr
 
 from mcp_conformance import __version__
 from mcp_conformance._evidence import CallOutcome, RawAnswer, ServerRecord, ToolRecord
@@ -43,13 +44,13 @@ def formatted(error: BaseException) -> str:
 @asynccontextmanager
 async def open_session(
     endpoint: str,
-    bearer: str | None,
+    bearer: SecretStr | None,
     headers: Mapping[str, str] | None = None,
 ) -> AsyncIterator[ClientSession]:
     """Connect, without initializing: family 5 times the handshake itself."""
     sent = dict(headers or {})
-    if bearer:
-        sent["Authorization"] = f"Bearer {bearer}"
+    if bearer is not None:
+        sent["Authorization"] = f"Bearer {bearer.get_secret_value()}"
     timeout = httpx.Timeout(_CONNECT_SECONDS, read=_READ_SECONDS)
     async with (
         httpx.AsyncClient(
@@ -118,7 +119,7 @@ async def list_recorded(session: ClientSession) -> CallOutcome:
 
 async def attempt_call(
     endpoint: str,
-    bearer: str | None,
+    bearer: SecretStr | None,
     tool: str,
     arguments: dict[str, Any],
 ) -> CallOutcome:

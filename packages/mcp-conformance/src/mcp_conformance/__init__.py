@@ -6,6 +6,10 @@ with ``pytest --pyargs mcp_conformance --mcp-endpoint ...`` and reads the report
 
 from __future__ import annotations
 
-__version__ = "0.1.0"
+from importlib.metadata import version
+
+# The distribution's own number, so the report an operator signs cannot name a
+# version the package is not.
+__version__ = version("veupathdb-mcp-conformance")
 
 __all__ = ["__version__"]

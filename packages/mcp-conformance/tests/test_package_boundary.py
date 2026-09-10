@@ -11,14 +11,17 @@ import ast
 import importlib
 import pkgutil
 import sys
+from importlib.metadata import version
 from pathlib import Path
 from types import ModuleType
 
 import pytest
+import tomllib
 
 import mcp_conformance
 
 SUITE = mcp_conformance.__name__
+DISTRIBUTION = "veupathdb-mcp-conformance"
 
 # Everything this deployment owns. A suite that reaches one of these cannot be
 # run against a server we did not write.
@@ -94,3 +97,13 @@ def test_the_suite_ships_the_families_it_promises() -> None:
         "test_timeouts",
         "test_stability",
     }
+
+
+def test_the_version_is_the_number_the_distribution_ships_under() -> None:
+    """The suite is always installed, so its metadata is the number to read."""
+    declared = tomllib.loads(
+        (Path(__file__).resolve().parents[1] / "pyproject.toml").read_text()
+    )["project"]["version"]
+
+    assert mcp_conformance.__version__ == version(DISTRIBUTION)
+    assert mcp_conformance.__version__ == declared

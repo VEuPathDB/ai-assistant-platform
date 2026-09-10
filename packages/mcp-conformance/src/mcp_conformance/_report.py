@@ -5,10 +5,11 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Literal
 
-from pydantic import Field
+from pydantic import Field, SecretStr
 
 from mcp_conformance import __version__
 from mcp_conformance._evidence import ServerRecord, ShapeEvidence, ToolRecord
+from mcp_conformance._options import BEARER_MINIMUM
 from mcp_conformance._wire import WireModel
 
 SUITE_NAME = "veupathdb-mcp-conformance"
@@ -17,6 +18,11 @@ Outcome = Literal["passed", "failed", "skipped", "error"]
 Verdict = Literal["pass", "fail", "incomplete"]
 
 REDACTED = "<redacted>"
+
+# A run of a credential this long or longer is treated as the credential
+# itself, so a shortened repr cannot carry one. It is half the shortest bearer
+# the suite accepts, so a run that long is the credential and not prose.
+RUN_MINIMUM = BEARER_MINIMUM // 2
 
 # The one thing the report leaves out of a tool row. An operator signs what a
 # tool returns; what it takes is the server's own document.
@@ -68,9 +74,32 @@ def check_id(module: str, nodeid: str) -> str:
     return f"{module}.py::{nodeid.rsplit('::', maxsplit=1)[-1]}"
 
 
-def redact(text: str, credentials: tuple[str, ...]) -> str:
+def _without_runs(text: str, value: str) -> str:
+    """Replace every run of the value long enough to be it, wherever it sits."""
+    windows = {
+        value[index : index + RUN_MINIMUM]
+        for index in range(len(value) - RUN_MINIMUM + 1)
+    }
+    parts: list[str] = []
+    read = 0
+    while read < len(text):
+        if text[read : read + RUN_MINIMUM] not in windows:
+            parts.append(text[read])
+            read += 1
+            continue
+        end = read + RUN_MINIMUM
+        while end < len(text) and text[read : end + 1] in value:
+            end += 1
+        parts.append(REDACTED)
+        read = end
+    return "".join(parts)
+
+
+def redact(text: str, credentials: tuple[SecretStr, ...]) -> str:
+    """Take out every credential, and every run of one long enough to be it."""
     for credential in credentials:
-        text = text.replace(credential, REDACTED)
+        value = credential.get_secret_value()
+        text = _without_runs(text.replace(value, REDACTED), value)
     return text
 
 
@@ -109,7 +138,7 @@ class AdmissionReport(WireModel):
     tools: list[ToolRecord] = Field(default_factory=list)
     families: list[FamilyResult] = Field(default_factory=list)
 
-    def rendered(self, credentials: tuple[str, ...]) -> str:
+    def rendered(self, credentials: tuple[SecretStr, ...]) -> str:
         """The report as JSON, with every credential taken out of it."""
         body = self.model_dump_json(by_alias=True, indent=2, exclude=_TOOL_DETAIL)
         return redact(body, credentials) + "\n"
@@ -130,7 +159,7 @@ class ReportAccumulator:
     def __init__(
         self,
         target: ReportTarget | None = None,
-        credentials: tuple[str, ...] = (),
+        credentials: tuple[SecretStr, ...] = (),
     ) -> None:
         self._target = target
         self._credentials = credentials
@@ -139,7 +168,7 @@ class ReportAccumulator:
         self._shape: ShapeEvidence | None = None
 
     @property
-    def credentials(self) -> tuple[str, ...]:
+    def credentials(self) -> tuple[SecretStr, ...]:
         return self._credentials
 
     def record_shape(self, evidence: ShapeEvidence) -> None:

@@ -50,7 +50,7 @@ repos:
         entry: bash -c "node scripts/check-knowledge.mjs && node --test scripts/check-knowledge.test.mjs"
         language: system
         pass_filenames: false
-        files: ^(docs/knowledge/|scripts/check-knowledge)
+        files: ^(docs/knowledge/|scripts/)
       - id: typecheck-assistant-client
         name: tsc --noEmit (assistant-client)
         entry: bash -c "cd packages/assistant-client-ts && yarn typecheck"

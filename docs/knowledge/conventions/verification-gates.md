@@ -4,7 +4,7 @@ title: Verification gates
 description: The exact commands that decide whether a change to one of this repository's three distributions is done.
 tags: [testing, ci, workflow]
 generated: { by: claude-code/opus-5, at: 2026-08-09T00:00:00Z }
-verified: { by: claude-code/opus-5, at: 2026-09-08T00:00:00Z }
+verified: { by: claude-code/opus-5, at: 2026-09-10T00:00:00Z }
 status: stable
 ---
 
@@ -90,3 +90,18 @@ node --test scripts/check-knowledge.test.mjs
 
 Run these from the repository root. The first checks this bundle against Open
 Knowledge Format v0.2; the second checks the checker against its fixtures.
+
+A page of another repository cannot be a relative link, so it is cited as the
+repository's prefix, a colon, a space and the path, inside a code span: for
+example `pathfinder: docs/knowledge/decisions/wdk-requires-registered-login.md`.
+The checker resolves that path against a checkout of the named repository beside
+this one, fails when the checkout has no such path, and reports the citation as
+unverified when there is no checkout to read. A run with no siblings, which is
+every CI run, therefore reports and does not fail. A citation written without
+the space fails on the form, wherever it runs, so no citation escapes the gate
+by a typing slip.
+
+`scripts/check-knowledge.mjs`, its test and the fixtures the test reads under
+`scripts/__fixtures__/` are copies of the same files in the consuming
+application and in the client library. A change to one is made in all three, in
+the same change; the test fails without the fixtures, so they travel with it.

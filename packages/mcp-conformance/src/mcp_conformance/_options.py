@@ -6,7 +6,7 @@ import os
 from pathlib import Path
 from typing import Any
 
-from pydantic import Field, TypeAdapter
+from pydantic import ConfigDict, Field, SecretStr, TypeAdapter, field_validator
 
 from mcp_conformance._wire import WireModel
 
@@ -26,6 +26,11 @@ SECOND_BEARER_ENV = "MCP_CONFORMANCE_BEARER_SECOND"
 # The budget a tool that declares none is held to.
 DEFAULT_MAX_CALL_SECONDS = 60.0
 
+# The shortest secret a registry admits an application on
+# (veupathdb-mcp: src/veupathdb_mcp/service_tokens.py). No deployment admits a
+# shorter bearer, so the suite refuses one before it opens a session.
+BEARER_MINIMUM = 32
+
 SampleArguments = dict[str, dict[str, Any]]
 _SAMPLES = TypeAdapter(SampleArguments)
 
@@ -33,18 +38,43 @@ _SAMPLES = TypeAdapter(SampleArguments)
 class ConformanceTarget(WireModel):
     """The server under test, the credentials, and the calls the runner allows."""
 
+    # Pydantic renders a refused value in its error, and a refused bearer is
+    # still a credential.
+    model_config = ConfigDict(hide_input_in_errors=True)
+
     endpoint: str
-    bearer: str | None = None
-    second_bearer: str | None = None
+    # A masked type, because pytest renders a failing frame's locals and a
+    # shortened value is a value the report cannot match on.
+    bearer: SecretStr | None = None
+    second_bearer: SecretStr | None = None
     sample_arguments: SampleArguments = Field(default_factory=dict)
     slow_tool: str | None = None
     isolation_tool: str | None = None
     max_call_seconds: float = DEFAULT_MAX_CALL_SECONDS
 
+    @field_validator("bearer", "second_bearer", mode="before")
+    @classmethod
+    def _absent_when_empty(cls, value: str | None) -> str | None:
+        """An empty option is how the runner spells no bearer at all."""
+        return value or None
+
+    @field_validator("bearer", "second_bearer", mode="after")
+    @classmethod
+    def _long_enough_to_admit(cls, value: SecretStr | None) -> SecretStr | None:
+        if value is not None and len(value.get_secret_value()) < BEARER_MINIMUM:
+            msg = (
+                f"A bearer is at least {BEARER_MINIMUM} characters, "
+                "the shortest secret a deployment admits."
+            )
+            raise ValueError(msg)
+        return value
+
     @property
-    def credentials(self) -> tuple[str, ...]:
+    def credentials(self) -> tuple[SecretStr, ...]:
         """Every secret that must not reach the report."""
-        return tuple(value for value in (self.bearer, self.second_bearer) if value)
+        return tuple(
+            value for value in (self.bearer, self.second_bearer) if value is not None
+        )
 
 
 def from_environment(name: str) -> str | None:
