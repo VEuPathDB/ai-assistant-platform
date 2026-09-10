@@ -1,5 +1,18 @@
 # Log
 
+## 2026-09-10
+
+The last two duplications the placement sweep left are decided rather than
+removed. `CamelModel` stays written in `assistant_core/platform/pydantic_base.py`
+and in `veupathdb/model.py`, and the testcontainers Postgres fixture stays
+written in each repository's own conftest: the two distributions may not depend
+on each other, and a third distribution for a twenty-line base class and a test
+fixture is a pin, a tag and a CI lane every consumer pays for one class. One
+decision is new: the camelCase model base and the test-database bootstrap are
+written per distribution. It records what a drift between the two `CamelModel`s
+would cost, and names the embedder drift gate the consuming application already
+runs as the shape to copy if that ever happens.
+
 ## 2026-09-09
 
 The durable-task subsystem moved in whole. `assistant_core.tasks` holds the
