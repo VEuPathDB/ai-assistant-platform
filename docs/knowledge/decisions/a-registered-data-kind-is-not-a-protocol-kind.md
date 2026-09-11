@@ -27,20 +27,29 @@ every kind an assistant registered: they would never reach the reducer, so the
 parts would be missing from the message and the thread would render without
 them. That is a data loss dressed as a strictness improvement.
 
-The three kinds that prompted the question (`data-memory-retrieved`,
-`data-scratchpad-updated`, `data-user-question-answers`) are not registered by
-the runtime: `register_core_stream_parts` does not name them, so the document's
-table does not either, and `assistant-core`'s own suite asserts that the table
-equals the kinds the runtime registers. Adding them to the document would fail that assertion.
+The kinds that prompted the question were `data-memory-retrieved`,
+`data-scratchpad-updated` and `data-user-question-answers`. Which of them the
+document names is settled by what emits them, not by what registers them: a
+builder something in this repository calls is the runtime's, and a builder
+whose only caller is a host's code is the host's.
+`assistant_core.scratchpad.tools` calls `scratchpad_updated_event` four times,
+so `data-scratchpad-updated` is a core kind and the table names it; nothing
+here calls `memory_retrieved_event`, so `data-memory-retrieved` is registered
+by the assistant that recalls memories. `data-lead-usage`,
+`data-sub-agent-call` and `data-sub-agent-step` left the core registry under
+the same rule, and
+`tests/unit/conversation/test_data_part_table.py` is the gate: every kind a
+call site here emits is in the table.
 
 # What was rejected
 
 **Making `isKnownChunkKind` consult the captured data-part list.** Rejected: it
 drops an assistant's registered kinds from the stream.
 
-**Adding the three kinds to `PROTOCOL.md`.** Rejected: the runtime registers
-none of them, and the document's table is checked against that registry. A kind
-belongs in the table when the runtime emits it.
+**Adding every one of the three kinds to `PROTOCOL.md`.** Rejected: the
+document names what something here emits. A kind whose builder only a host
+calls describes that host's shape, and a second consumer implementing the
+document would be implementing a kind no deployment but one produces.
 
 # Accepted overlaps
 

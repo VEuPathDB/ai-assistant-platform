@@ -127,6 +127,21 @@ type StreamPartHook = Callable[[StreamPartRegistry], None]
 type MockModelFactory = Callable[[], Model]
 type IdentityGate = Callable[[], Awaitable[None]]
 type TurnEpilogue = Callable[[UUID], Awaitable[Sequence[dict[str, Any]]]]
+# The token is the assistant's own. The runtime carries it from the prologue
+# to the cancel hook and never reads it.
+type TurnPrologue = Callable[[UUID], Awaitable[Any]]
+type TurnCancel = Callable[[UUID, Any], Awaitable[None]]
+
+
+async def no_turn_token(conversation_id: UUID) -> Any:
+    """The prologue of an assistant that reads nothing before its graph."""
+    del conversation_id
+    return None
+
+
+async def discard_nothing(conversation_id: UUID, token: Any) -> None:
+    """The cancel hook of an assistant a stopped turn leaves nothing to undo."""
+    del conversation_id, token
 
 
 class AssistantSpec(BaseModel):
@@ -150,6 +165,10 @@ class AssistantSpec(BaseModel):
     identity_gate: IdentityGate | None = None
     # Chunks written after the turn's graph finishes, keyed by conversation.
     turn_epilogue: TurnEpilogue | None = None
+    # Runs before the turn's graph and answers with the token the cancel hook
+    # receives when the user stops that turn.
+    turn_prologue: TurnPrologue = no_turn_token
+    turn_cancel: TurnCancel = discard_nothing
 
 
 __all__ = [
@@ -158,10 +177,14 @@ __all__ = [
     "IdentityGate",
     "MockModelFactory",
     "StreamPartHook",
+    "TurnCancel",
     "TurnContextFactory",
     "TurnContextRequest",
     "TurnEpilogue",
+    "TurnPrologue",
     "TurnStart",
     "TurnStateFactory",
+    "discard_nothing",
+    "no_turn_token",
     "turn_input",
 ]

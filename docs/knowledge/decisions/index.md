@@ -17,6 +17,7 @@ Choices made deliberately, each naming the alternative that was rejected and why
 - [The thread carries its own messages across turns](the-thread-carries-its-own-messages-across-turns.md) - a one-agent turn runs over the checkpointed thread history, bounded by nobody
 - [A tool source's session belongs to the turn](a-tool-source-session-belongs-to-the-turn.md) - the turn's driver opens and closes every declared MCP session
 - [The admitted tool sources are installed by the host](admitted-tool-sources-are-installed-by-the-host.md) - admission is a value a host installs once, never a field parsed from the environment
+- [The tool-hint namespace is a value a deployment names](the-meta-namespace-is-a-value-a-deployment-names.md) - a server declares its typed part under `<namespace>/streamPart`, and the default names this organisation
 - [The runtime's stored defaults name no product](the-runtime-defaults-name-no-product.md) - the application and assistant defaults are `default`, and a host stamps its own id
 - [Input screening is configured by the host](input-screening-is-configured-by-the-host.md) - the model directory is a constructor argument, the rejection is a plain error, and the ONNX runtime is an optional extra
 - [Ownership is answered here and the status code is the host's](ownership-is-answered-here-and-the-status-code-is-the-hosts.md) - a thread belongs to a user under one application, and the refusal is a plain error the host maps

@@ -55,6 +55,8 @@ BEARER_A = "h7qm2vzx9kd4tbnr6gsw5lpf8cyj3xqa"
 BEARER_B = "w3ndk8fpz5rlq7hvx2mgt6bcj9syd4uw"
 IDENTITY = {BEARER_A: "identity-a", BEARER_B: "identity-b"}
 
+# The keys a third-party server writes, spelled out as such a server spells
+# them and not read from the suite it is tested by.
 STREAM_PART_META_KEY = "org.veupathdb.assistant/streamPart"
 MAX_CALL_SECONDS_META_KEY = "org.veupathdb.assistant/maxCallSeconds"
 

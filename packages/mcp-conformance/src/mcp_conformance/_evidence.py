@@ -8,12 +8,17 @@ from pydantic import Field
 
 from mcp_conformance._wire import WireModel
 
+# The reverse-DNS namespace a server declares its runtime hints under. The
+# runtime reads the same default (assistant-core: mcp/untrusted.py), and the
+# two values must name one namespace for a run to read a server's hints.
+MCP_META_NAMESPACE = "org.veupathdb.assistant"
+
 # The tool-level key a server declares to render its payload as a typed part.
-STREAM_PART_META_KEY = "org.veupathdb.assistant/streamPart"
+STREAM_PART_META_KEY = f"{MCP_META_NAMESPACE}/streamPart"
 
 # The tool-level key a server declares when one call needs more than the
 # source's default budget.
-MAX_CALL_SECONDS_META_KEY = "org.veupathdb.assistant/maxCallSeconds"
+MAX_CALL_SECONDS_META_KEY = f"{MCP_META_NAMESPACE}/maxCallSeconds"
 
 
 class PropertySchema(WireModel):

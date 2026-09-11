@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from typing import Any
 
 import jsonschema
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, JsonValue, field_validator
 from pydantic_ai.messages import ToolReturn
 from pydantic_ai.tools import AgentDepsT, RunContext
 from pydantic_ai.toolsets.abstract import ToolsetTool
@@ -16,9 +16,42 @@ from pydantic_core import to_json
 from assistant_core.graph.stream_events import tool_summary_event
 from assistant_core.platform.logging import get_logger
 
-STREAM_PART_META_KEY = "org.veupathdb.assistant/streamPart"
+# The reverse-DNS namespace a tool server declares its runtime hints under.
+# A deployment that runs its own runtime names its own.
+DEFAULT_MCP_META_NAMESPACE = "org.veupathdb.assistant"
 
 logger = get_logger(__name__)
+
+
+class _MetaNamespace:
+    """The namespace in force. The host installs it, at start."""
+
+    def __init__(self) -> None:
+        self._namespace = DEFAULT_MCP_META_NAMESPACE
+
+    def use(self, namespace: str) -> None:
+        self._namespace = namespace
+
+    def read(self) -> str:
+        return self._namespace
+
+
+_namespace = _MetaNamespace()
+
+
+def install_mcp_meta_namespace(namespace: str) -> None:
+    """Read every tool hint under this namespace for this process."""
+    _namespace.use(namespace)
+
+
+def mcp_meta_namespace() -> str:
+    """The namespace this deployment reads tool hints under."""
+    return _namespace.read()
+
+
+def stream_part_meta_key() -> str:
+    """The tool-level key a server declares its typed part under."""
+    return f"{mcp_meta_namespace()}/streamPart"
 
 
 class StreamPartDeclaration(BaseModel):
@@ -30,23 +63,25 @@ class StreamPartDeclaration(BaseModel):
     version: int = Field(ge=1)
 
 
-class _SourceToolMeta(BaseModel):
-    """The tool-level ``_meta`` keys the runtime reads."""
-
-    model_config = ConfigDict(extra="ignore")
-
-    stream_part: StreamPartDeclaration | None = Field(
-        default=None,
-        alias=STREAM_PART_META_KEY,
-    )
-
-
 class _DeclaringToolView(BaseModel):
-    """The tool metadata a part declaration arrives in."""
+    """The tool metadata a part declaration arrives in.
+
+    The key the declaration sits under is the deployment's, so the keys are
+    read as data rather than typed as fields.
+    """
 
     model_config = ConfigDict(extra="ignore")
 
-    meta: _SourceToolMeta | None = None
+    meta: dict[str, JsonValue] = Field(default_factory=dict)
+
+    @field_validator("meta", mode="before")
+    @classmethod
+    def _absent_meta_declares_nothing(
+        cls,
+        value: dict[str, JsonValue] | None,
+    ) -> dict[str, JsonValue]:
+        """A tool that carries no ``_meta`` declares no part."""
+        return value or {}
 
 
 class ScanVerdict(BaseModel):
@@ -170,7 +205,10 @@ def _answered(
 
 def _declared_part(metadata: dict[str, Any] | None) -> StreamPartDeclaration | None:
     meta = _DeclaringToolView.model_validate(metadata or {}).meta
-    return meta.stream_part if meta is not None else None
+    declared = meta.get(stream_part_meta_key())
+    if declared is None:
+        return None
+    return StreamPartDeclaration.model_validate(declared)
 
 
 def _as_text(result: Any) -> str:
@@ -190,7 +228,7 @@ def _schema_refusal(payload: Any, schema: dict[str, Any] | None) -> str | None:
 
 
 __all__ = [
-    "STREAM_PART_META_KEY",
+    "DEFAULT_MCP_META_NAMESPACE",
     "OutputScan",
     "PartNamespaceViolationError",
     "PartViolation",
@@ -198,6 +236,9 @@ __all__ = [
     "StreamPartDeclaration",
     "UntrustedOutputToolset",
     "ViolationSink",
+    "install_mcp_meta_namespace",
     "log_violation",
+    "mcp_meta_namespace",
     "pass_through_scan",
+    "stream_part_meta_key",
 ]

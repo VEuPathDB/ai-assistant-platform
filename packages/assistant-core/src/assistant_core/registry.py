@@ -1,4 +1,4 @@
-"""The assistants installed in one deployment.
+"""The assistants installed in one deployment, and which one answers a turn.
 
 Composition builds the registry; the runtime resolves a turn's assistant
 through it and never names one.
@@ -7,7 +7,9 @@ through it and never names one.
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
+from uuid import UUID
 
+from assistant_core.conversation.authz import conversation_assistant_id
 from assistant_core.spec import AssistantSpec
 
 
@@ -40,6 +42,20 @@ class UnknownAssistantError(LookupError):
         super().__init__(f"unknown assistant: {assistant_id}")
         self.assistant_id = assistant_id
         self.known = known
+
+
+class AssistantMismatchError(ValueError):
+    """A request names an assistant other than the one its thread was created with.
+
+    The transport boundary answers it as a 409.
+    """
+
+    def __init__(self, requested: str, existing: str) -> None:
+        super().__init__(
+            f"conversation belongs to assistant {existing!r}, not {requested!r}",
+        )
+        self.requested = requested
+        self.existing = existing
 
 
 class AssistantRegistry:
@@ -83,6 +99,47 @@ class AssistantRegistry:
         for spec in self._by_id.values():
             seen.update(dict.fromkeys(spec.checkpoint_types))
         return tuple(seen)
+
+
+def assistant_for_turn(
+    *,
+    registry: AssistantRegistry,
+    existing_id: str | None,
+    requested_id: str | None,
+) -> AssistantSpec:
+    """The assistant a turn runs under.
+
+    A thread that does not exist yet takes the requested assistant, or the
+    default. An existing thread keeps the assistant it was created with, and a
+    request that names another one is refused.
+    """
+    if existing_id is None:
+        return registry.resolve(requested_id or registry.default_id)
+    if requested_id is not None and requested_id != existing_id:
+        raise AssistantMismatchError(requested_id, existing_id)
+    return registry.resolve(existing_id)
+
+
+async def resolve_turn_assistant(
+    *,
+    registry: AssistantRegistry,
+    conversation_id: UUID | None,
+    requested_id: str | None,
+) -> AssistantSpec:
+    """The assistant this turn runs under, reading the thread's own row.
+
+    A caller that is about to create the thread passes no id and reads no row.
+    """
+    existing = (
+        None
+        if conversation_id is None
+        else await conversation_assistant_id(conversation_id)
+    )
+    return assistant_for_turn(
+        registry=registry,
+        existing_id=existing,
+        requested_id=requested_id,
+    )
 
 
 class RegistryNotInstalledError(RuntimeError):
@@ -132,12 +189,15 @@ def assistant_registry() -> AssistantRegistry:
 
 
 __all__ = [
+    "AssistantMismatchError",
     "AssistantRegistry",
     "DuplicateAssistantError",
     "RegistryNotInstalledError",
     "UnknownAssistantError",
     "UnknownDefaultAssistantError",
+    "assistant_for_turn",
     "assistant_registry",
     "install_assistant_registry",
     "reset_assistant_registry",
+    "resolve_turn_assistant",
 ]

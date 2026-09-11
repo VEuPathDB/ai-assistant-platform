@@ -1,16 +1,19 @@
-from assistant_core.graph.stream_events import (
+"""The lead and sub-agent parts, and the registry they belong on."""
+
+from assistant_core.conversation.stream_parts.agent_topology import (
     SubAgentCallPayload,
     lead_usage_event,
+    register_agent_topology_stream_parts,
     sub_agent_call_event,
-    turn_usage_event,
 )
+from assistant_core.conversation.stream_parts.core_parts import (
+    register_core_stream_parts,
+)
+from assistant_core.conversation.stream_parts.registry import StreamPartRegistry
 
-
-def test_turn_usage_event_is_transient() -> None:
-    chunk = turn_usage_event(total_tokens=1234, cost_usd="0.05")
-    assert chunk.type == "data-turn-usage"
-    assert chunk.transient is True
-    assert chunk.data == {"totalTokens": 1234, "costUsd": "0.05"}
+TOPOLOGY_KINDS = frozenset(
+    {"data-lead-usage", "data-sub-agent-call", "data-sub-agent-step"},
+)
 
 
 def test_lead_usage_event_has_stable_id_and_payload() -> None:
@@ -75,3 +78,18 @@ def test_sub_agent_usage_defaults_to_zero() -> None:
     )
     assert payload.tokens == 0
     assert payload.cost_usd == "0"
+
+
+def test_the_core_registry_leaves_the_topology_to_the_assistant() -> None:
+    registry = StreamPartRegistry()
+    register_core_stream_parts(registry)
+
+    assert registry.kinds() & TOPOLOGY_KINDS == frozenset()
+
+
+def test_an_assistant_registers_the_three_kinds_on_its_own_registry() -> None:
+    registry = StreamPartRegistry()
+    register_core_stream_parts(registry)
+    register_agent_topology_stream_parts(registry)
+
+    assert registry.kinds() >= TOPOLOGY_KINDS

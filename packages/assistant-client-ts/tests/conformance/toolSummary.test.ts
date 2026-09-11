@@ -120,10 +120,10 @@ describe("section 6.3, a tool that says what it did", () => {
     expect(only(odd.parts).summaryStatus).toBe("ok");
   });
 
-  it("names the kind as known and reports a protocol version that carries section 6.3", () => {
+  it("names the kind as known and reports a version that carries section 6.3", () => {
     expect(isKnownChunkKind(KIND)).toBe(true);
-    const [major, minor] = PROTOCOL_VERSION.split(".").map(Number);
-    expect(major).toBe(1);
-    expect(minor).toBeGreaterThanOrEqual(4);
+    const [major = 0, minor = 0] = PROTOCOL_VERSION.split(".").map(Number);
+    // The kind arrived in 1.4.0 and every later version carries it.
+    expect(major > 1 || minor >= 4).toBe(true);
   });
 });

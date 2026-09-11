@@ -433,6 +433,7 @@ async def drive_turn(request: TurnRequest) -> TurnOutcome:
     ``finish``/``done`` pair closes it, whatever the turn did in between.
     """
     outcome = TurnOutcome(turn_message_id=request.writer.turn_id)
+    turn_token = await request.spec.turn_prologue(request.conversation_id)
     outcome.start_event_id = await request.writer.write(
         dump_chunk(StartChunk(message_id=str(request.writer.turn_id))),
     )
@@ -443,6 +444,7 @@ async def drive_turn(request: TurnRequest) -> TurnOutcome:
     outcome.cancelled = request.context.cancel_event.is_set()
 
     if outcome.cancelled:
+        await request.spec.turn_cancel(request.conversation_id, turn_token)
         await request.writer.write(dump_chunk(turn_stopped_event()))
     if request.spec.turn_epilogue is not None:
         for chunk in await request.spec.turn_epilogue(request.conversation_id):

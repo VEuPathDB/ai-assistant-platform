@@ -6,7 +6,7 @@ from __future__ import annotations
 from typing import Any, Literal
 from uuid import UUID
 
-from pydantic import JsonValue, field_validator
+from pydantic import field_validator
 from pydantic_ai.ui.vercel_ai.response_types import DataChunk
 
 from assistant_core.conversation.stream_parts.task_parts import (
@@ -152,42 +152,6 @@ def turn_usage_event(*, total_tokens: int, cost_usd: str) -> DataChunk:
     )
 
 
-class LeadUsagePayload(CamelModel):
-    """Payload for the lead-usage chunk. The counts cover the Lead agent only
-    and exclude sub-agents. ``context_tokens`` is the input size of the latest
-    request against ``context_window``, and 0 in either means unknown.
-    """
-
-    model_id: str = ""
-    tokens: int = 0
-    cost_usd: str = "0"
-    context_tokens: int = 0
-    context_window: int = 0
-
-
-def lead_usage_event(
-    *,
-    model_id: str,
-    tokens: int,
-    cost_usd: str,
-    context_tokens: int = 0,
-    context_window: int = 0,
-) -> DataChunk:
-    """Report live Lead usage. The id is stable, so repeated emissions
-    reconcile into one persisted part."""
-    return DataChunk(
-        type="data-lead-usage",
-        id="lead-usage",
-        data=LeadUsagePayload(
-            model_id=model_id,
-            tokens=tokens,
-            cost_usd=cost_usd,
-            context_tokens=context_tokens,
-            context_window=context_window,
-        ).model_dump(by_alias=True, mode="json"),
-    )
-
-
 class TurnStoppedPayload(CamelModel):
     """Payload for the turn-stopped chunk. The chunk persists as a message
     part, so the stopped state survives a page reload.
@@ -243,59 +207,6 @@ def turn_status_event(
             waiting_on_llm=waiting_on_llm,
             model=model,
         ).model_dump(by_alias=True, mode="json", exclude_none=True),
-    )
-
-
-class SubAgentCallPayload(CamelModel):
-    """Payload for the sub-agent-call chunk. The tool call id identifies the
-    dispatch, and sub-agent step chunks join to it. ``context_tokens`` is the
-    input size of the dispatch's latest request against ``context_window``, and
-    0 in either means unknown.
-    """
-
-    tool_call_id: str
-    sub_agent: str
-    phase: str
-    state: Literal["started", "completed", "failed"]
-    model_id: str = ""
-    summary: str = ""
-    succeeded: bool | None = None
-    tokens: int = 0
-    cost_usd: str = "0"
-    context_tokens: int = 0
-    context_window: int = 0
-
-
-def sub_agent_call_event(payload: SubAgentCallPayload) -> DataChunk:
-    """Report one sub-agent dispatch. The id is the tool call id, so the
-    started and completed emissions reconcile into one part."""
-    return DataChunk(
-        type="data-sub-agent-call",
-        id=payload.tool_call_id,
-        data=payload.model_dump(by_alias=True, mode="json"),
-    )
-
-
-class SubAgentStepPayload(CamelModel):
-    """Payload for one event inside a sub-agent run. The parent tool call id
-    nests the event under its dispatch.
-    """
-
-    parent_tool_call_id: str
-    kind: Literal["tool", "reasoning", "text"]
-    state: Literal["started", "completed", "failed", "denied"]
-    tool_call_id: str | None = None
-    tool_name: str | None = None
-    args: dict[str, JsonValue] | None = None
-    result_summary: str | None = None
-    text: str | None = None
-
-
-def sub_agent_step_event(payload: SubAgentStepPayload) -> DataChunk:
-    """One event inside a sub-agent's run."""
-    return DataChunk(
-        type="data-sub-agent-step",
-        data=payload.model_dump(by_alias=True, mode="json"),
     )
 
 

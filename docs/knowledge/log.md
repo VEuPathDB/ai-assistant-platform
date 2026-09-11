@@ -2,6 +2,59 @@
 
 ## 2026-09-11
 
+A host serves three endpoints and starts a worker from this repository alone.
+`docs/knowledge/conventions/embedding-the-runtime-in-a-host.md` names, for each
+endpoint `PROTOCOL.md` specifies, the runtime call that serves it, the ten
+steps a chat handler runs in order, the seven installs a worker makes before
+its first job, and the seven refusals a host maps onto status codes.
+`packages/assistant-core/README.md` states what the distribution is and points
+at both.
+
+Which assistant answers a turn is the runtime's rule.
+`assistant_core.registry.assistant_for_turn` is the rule with no database in
+it, `resolve_turn_assistant` reads the thread's row and applies it, and
+`AssistantMismatchError` carries the requested and the existing id. A thread
+never changes assistant, and the status code that refusal is rendered as is the
+host's.
+
+The data-part table is checked against the builders something here calls, not
+against the registry alone. `data-scratchpad-updated` is a core kind, because
+the runtime's own scratchpad tools emit it. `data-lead-usage`,
+`data-sub-agent-call` and `data-sub-agent-step` are not: nothing here emits
+them and they describe one agent topology, so they moved to
+`assistant_core.conversation.stream_parts.agent_topology`, which an assistant
+with a lead and sub-agents registers itself. Section 6's rule for closing a
+part that carries its own state names no kind now, because it holds for any
+such part. PROTOCOL 2.0.0.
+
+An assistant declares what a turn opens with and what a stopped turn undoes.
+`AssistantSpec.turn_prologue` runs before the graph and answers a token the
+runtime never reads; `AssistantSpec.turn_cancel` receives that token on a turn
+the user stopped. Both default to a no-op, so a driver calls them
+unconditionally and an assistant that owns no state outside the thread reads
+nothing per turn.
+
+The runtime records its own instruments. `assistant_core.platform.metrics`
+holds five turn series and six event-stream series, and each is recorded by the
+code that observes the event: the chunk writer times the turn it writes, the
+turn's message carries its tokens, and one SSE subscription counts its own
+frames and says how it ended. A process that configures no meter provider
+records to a no-op sink.
+
+The write-through store and the fire-and-forget spawner are the runtime's.
+`assistant_core.platform.store.WriteThruStore` caches an entity and writes its
+row outside the caller's turn, retrying a write that failed on the transport;
+`assistant_core.platform.spawn.spawn` holds every task it schedules until the
+task finishes, and closes a coroutine handed to it outside a loop. `tenacity`
+is a declared dependency, because the store retries.
+
+A tool server declares its hints under the namespace its own deployment names.
+`assistant_core.mcp.untrusted.DEFAULT_MCP_META_NAMESPACE` is
+`org.veupathdb.assistant`, `install_mcp_meta_namespace` names another for a
+process, and the conformance suite builds both of its keys from one constant of
+its own. One decision is new: the tool-hint namespace is a value a deployment
+names. `assistant-core` is 0.3.0a7.
+
 `assistant_core.platform.pydantic_base` publishes `computed`, a computed field
 a type checker reads as the value it computes. A `@computed_field` stacked on
 `@property` is a decorated property, which mypy refuses and which reads as a

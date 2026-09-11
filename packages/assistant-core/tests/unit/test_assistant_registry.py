@@ -17,11 +17,13 @@ from assistant_core.graph.runtime import TurnContext
 from assistant_core.graph.turn_state import TurnState
 from assistant_core.platform.db import async_session_factory
 from assistant_core.registry import (
+    AssistantMismatchError,
     AssistantRegistry,
     DuplicateAssistantError,
     RegistryNotInstalledError,
     UnknownAssistantError,
     UnknownDefaultAssistantError,
+    assistant_for_turn,
     assistant_registry,
     install_assistant_registry,
     reset_assistant_registry,
@@ -220,3 +222,56 @@ def test_the_installed_registry_is_the_one_work_without_a_request_reads() -> Non
     reset_assistant_registry()
     with pytest.raises(RegistryNotInstalledError):
         assistant_registry()
+
+
+def test_a_thread_that_does_not_exist_takes_the_requested_assistant() -> None:
+    registry = AssistantRegistry(
+        specs=[_spec("alpha"), _spec("beta")],
+        default_id="alpha",
+    )
+
+    spec = assistant_for_turn(registry=registry, existing_id=None, requested_id="beta")
+
+    assert spec.assistant_id == "beta"
+
+
+def test_a_thread_that_does_not_exist_and_names_nothing_takes_the_default() -> None:
+    registry = AssistantRegistry(
+        specs=[_spec("alpha"), _spec("beta")],
+        default_id="beta",
+    )
+
+    spec = assistant_for_turn(registry=registry, existing_id=None, requested_id=None)
+
+    assert spec.assistant_id == "beta"
+
+
+def test_an_existing_thread_keeps_its_assistant() -> None:
+    registry = AssistantRegistry(
+        specs=[_spec("alpha"), _spec("beta")],
+        default_id="alpha",
+    )
+
+    spec = assistant_for_turn(registry=registry, existing_id="beta", requested_id=None)
+
+    assert spec.assistant_id == "beta"
+
+
+def test_a_request_naming_another_assistant_than_the_thread_is_refused() -> None:
+    registry = AssistantRegistry(
+        specs=[_spec("alpha"), _spec("beta")],
+        default_id="alpha",
+    )
+
+    with pytest.raises(AssistantMismatchError) as raised:
+        assistant_for_turn(registry=registry, existing_id="beta", requested_id="alpha")
+
+    assert raised.value.requested == "alpha"
+    assert raised.value.existing == "beta"
+
+
+def test_a_turn_naming_an_assistant_this_deployment_does_not_serve_is_refused() -> None:
+    registry = AssistantRegistry(specs=[_spec("alpha")], default_id="alpha")
+
+    with pytest.raises(UnknownAssistantError):
+        assistant_for_turn(registry=registry, existing_id=None, requested_id="gamma")

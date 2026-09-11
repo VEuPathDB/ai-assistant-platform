@@ -19,6 +19,7 @@ from assistant_core.graph.turn_state import TurnState
 from assistant_core.persistence.repositories._message_metadata import MessageMetadata
 from assistant_core.persistence.repositories.message import MessagesRepository
 from assistant_core.platform.logging import get_logger
+from assistant_core.platform.metrics import turn_tokens
 
 logger = get_logger(__name__)
 
@@ -76,6 +77,7 @@ async def write_turn_message(
                 ),
             )
             await session.commit()
+        turn_tokens.add(state.turn_total_tokens)
     except SQLAlchemyError:
         logger.warning(
             "failed to write turn message",

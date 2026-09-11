@@ -1,6 +1,6 @@
 # The assistant runtime wire protocol
 
-**Version 1.7.1.** This document specifies the bytes a client exchanges with an
+**Version 2.0.0.** This document specifies the bytes a client exchanges with an
 assistant built on `assistant_core`. It is written so a consumer in any
 language can implement a client from this page alone, with no reference to the
 JavaScript SDK that inspired the chunk vocabulary. Section 14 records what each
@@ -180,10 +180,8 @@ The runtime defines these. An assistant MAY register more.
 | `data-turn-usage` | Running tokens and cost for the turn. Transient. |
 | `data-turn-stopped` | The user stopped this turn. |
 | `data-turn-failed` | This turn ended in a failure. Carries the failure's text. |
-| `data-lead-usage` | Usage of the lead agent alone, with the fill of its context window. Reconciles on its `id`. |
-| `data-sub-agent-call` | One sub-agent dispatch, with the fill of its context window. Reconciles on its `id`. |
-| `data-sub-agent-step` | One event inside a sub-agent's run. |
 | `data-conversation-title` | The thread's generated title. |
+| `data-scratchpad-updated` | The assistant's notes changed. A reader that shows them reads them again. |
 | `data-background-task-started` | A durable tool was deferred to a worker. |
 | `data-task-progress` | Progress of a durable tool. |
 | `data-task-completed` | A durable tool finished. |
@@ -241,21 +239,21 @@ it left open: one `tool-output-error` per call whose input was announced and
 whose result never arrived, carrying the same text as the `error` chunk. A
 client therefore never renders a running tool call inside a finished turn.
 
-A data part that carries a state of its own is not closed that way. The
-runtime writes `data-sub-agent-call` with `state: "started"` when a dispatch
-begins and reconciles it on its `id` when the dispatch ends, so a turn that is
-stopped, or killed inside the dispatch, leaves `started` as the last payload
-the log holds for it. Closing it is a reader rule: when a turn ends, a client
-MUST read every dispatch that turn left `started` as **cancelled** if the turn
-carries `data-turn-stopped`, as **failed** if it carries `data-turn-failed`,
-and as **superseded** otherwise. Superseded says the dispatch outlived its
-turn: work suspended on a durable task (section 6.1) resumes in a later turn,
-whose own `data-sub-agent-call` reconciles the part and states how it really
-ended. A client MUST NOT show a dispatch of a turn that is over as running,
-and MUST NOT show a call inside a cancelled or failed dispatch as running
+A data part that carries a state of its own is not closed that way. An
+assistant that reports a unit of work as a reconciling part writes it
+`started` when the work begins and reconciles it on its `id` when the work
+ends, so a turn that is stopped, or killed inside that work, leaves `started`
+as the last payload the log holds for it. Closing it is a reader rule: when a
+turn ends, a client MUST read every such part the turn left `started` as
+**cancelled** if the turn carries `data-turn-stopped`, as **failed** if it
+carries `data-turn-failed`, and as **superseded** otherwise. Superseded says
+the work outlived its turn: work suspended on a durable task (section 6.1)
+resumes in a later turn, whose own part reconciles the earlier one and states
+how it really ended. A client MUST NOT show work of a turn that is over as
+running, and MUST NOT show a call inside cancelled or failed work as running
 either: the turn ended before the call reported, so the call has no result
-and never will. A superseded dispatch is the exception, because its work is
-still running where the turn left it.
+and never will. Superseded work is the exception, because it is still running
+where the turn left it.
 
 A text or reasoning part that would stay empty is never written: the runtime
 holds a `text-start` or `reasoning-start` until the first delta with the same
@@ -853,6 +851,7 @@ data: {"type":"done","reason":"completed"}
 
 | Version | What it added |
 | --- | --- |
+| `2.0.0` | `data-lead-usage`, `data-sub-agent-call` and `data-sub-agent-step` leave the core vocabulary: the runtime emits none of them, and they describe one agent topology, so an assistant with a lead and sub-agents registers them itself. Section 6's rule for closing a part that carries its own state names no kind now, because it holds for any such part. `data-scratchpad-updated` joins the table: the runtime's own scratchpad tools emit it, and a reader that shows the notes reads them again when it arrives. Before this a client written from this page alone met a kind the page did not name, and implemented three kinds nothing here produces. |
 | `1.7.1` | Section 12.2's product-extension table is empty: the document names no host's own request field, and says a host documents the extensions its assistant reads. Before this the table carried one deployment's field, so a reader took a product's extension for part of the wire. The request examples carry a neutral site, mode and tool name for the same reason. |
 | `1.7.0` | The snapshot carries `openMessage` (sections 2, 4): the `messageId` of the message its last turn left open and the exclusive cursor a tail replays it from. Before this a client that had lost its cursor could recover the thread but not its resume point, so it tailed from `0` mid-turn. Section 4 also states the second tail a client opens across a durable gap, because a tail ends at the first `done` it serves. |
 | `1.6.1` | Section 4 states how a client resumes a message a turn left open: from a cursor before that message's `start`, dropping what the tail delivers before it, so the message is rebuilt whole. Before this the section named only the last observed cursor, and a reader that resumed from one met the gap's chunks of section 6.1 with no `start` to place them on. |

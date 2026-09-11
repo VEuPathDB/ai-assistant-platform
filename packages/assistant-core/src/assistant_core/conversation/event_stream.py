@@ -48,6 +48,7 @@ from assistant_core.persistence.models import ConversationEvent
 from assistant_core.platform.config import get_runtime_settings
 from assistant_core.platform.db import async_session_factory
 from assistant_core.platform.logging import get_logger
+from assistant_core.platform.metrics import SseSubscription, chunk_kind
 from assistant_core.platform.pydantic_base import CamelModel
 
 logger = get_logger(__name__)
@@ -385,10 +386,29 @@ async def iter_sse(
     conversation_id: UUID,
     after: int,
 ) -> AsyncIterator[str]:
+    """Frame this thread's chunks until the turn ends or the reader leaves."""
+    subscription = SseSubscription(resumed=after > 0)
+    reason = "reader-gone"
+    try:
+        frames = _frames(conversation_id, after, subscription)
+        async with contextlib.aclosing(frames):
+            async for frame in frames:
+                yield frame
+        reason = "turn-end"
+    finally:
+        subscription.close(reason=reason)
+
+
+async def _frames(
+    conversation_id: UUID,
+    after: int,
+    subscription: SseSubscription,
+) -> AsyncGenerator[str]:
     source = replay_and_tail(conversation_id=conversation_id, after=after)
     interval_seconds = float(get_runtime_settings().sse_keepalive_seconds)
     async for event in _tail_or_idle(source, interval_seconds):
         if event is None:
+            subscription.keepalive()
             yield _KEEPALIVE_FRAME
             continue
         event_id, chunk = event
@@ -413,6 +433,7 @@ async def iter_sse(
             UserMessageChunk | SystemMessageChunk | AssistantMessageChunk,
         ):
             continue
+        subscription.event(chunk_kind(chunk))
         yield _frame_event(event_id, typed)
         if isinstance(typed, DoneChunk):
             return

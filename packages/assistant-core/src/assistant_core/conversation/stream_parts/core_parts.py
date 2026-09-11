@@ -1,4 +1,7 @@
-"""Stream parts of the assistant runtime: tasks, usage, turn state, consults."""
+"""Stream parts of the assistant runtime: tasks, usage, turn state, consults.
+
+The runtime emits every kind registered here.
+"""
 
 from assistant_core.conversation.stream_parts.registry import (
     StreamPartRegistry,
@@ -11,9 +14,7 @@ from assistant_core.conversation.stream_parts.task_parts import (
 from assistant_core.conversation.stream_parts.turn_usage import TurnUsage
 from assistant_core.graph.stream_events import (
     ConversationTitlePayload,
-    LeadUsagePayload,
-    SubAgentCallPayload,
-    SubAgentStepPayload,
+    ScratchpadUpdatedPayload,
     ToolSummaryPayload,
     TurnFailedPayload,
     TurnStatusPayload,
@@ -30,14 +31,12 @@ def register_core_stream_parts(registry: StreamPartRegistry) -> None:
     registry.register("data-task-progress", TaskProgress)
     registry.register("data-task-completed", TaskCompleted)
     registry.register("data-turn-usage", TurnUsage)
-    registry.register("data-lead-usage", LeadUsagePayload)
     registry.register("data-turn-status", TurnStatusPayload)
     registry.register("data-turn-stopped", TurnStoppedPayload)
     registry.register("data-turn-failed", TurnFailedPayload)
-    registry.register("data-sub-agent-call", SubAgentCallPayload)
-    registry.register("data-sub-agent-step", SubAgentStepPayload)
     registry.register("data-conversation-title", ConversationTitlePayload)
     registry.register("data-tool-summary", ToolSummaryPayload)
+    registry.register("data-scratchpad-updated", ScratchpadUpdatedPayload)
     registry.register_schema_only("consult_question", ConsultQuestion)
     registry.register_schema_only("user_question_answer", UserQuestionAnswer)
 

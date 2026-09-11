@@ -16,10 +16,13 @@ from pydantic_ai.usage import RunUsage
 from pydantic_core import SchemaValidator, core_schema
 
 from assistant_core.mcp.untrusted import (
+    DEFAULT_MCP_META_NAMESPACE,
     PartNamespaceViolationError,
     PartViolation,
     ScanVerdict,
     UntrustedOutputToolset,
+    install_mcp_meta_namespace,
+    stream_part_meta_key,
 )
 
 SUMMARY_SCHEMA = {
@@ -341,3 +344,39 @@ async def test_the_per_run_copy_keeps_the_namespace_the_scan_and_the_sink() -> N
     assert for_run.part_namespace == "eda"
     assert for_run.scan is record
     assert for_run.record_violation is sink
+
+
+async def test_a_deployment_that_names_its_own_namespace_reads_that_key() -> None:
+    install_mcp_meta_namespace("com.example.assistant")
+    try:
+        own_key = {"com.example.assistant/streamPart": {"kind": KIND, "version": 1}}
+        toolset = UntrustedOutputToolset(
+            _declaring_source(meta=own_key),
+            part_namespace="eda",
+        )
+
+        result = await _call(toolset)
+
+        assert isinstance(result, ToolReturn)
+        assert [(chunk.type, chunk.data) for chunk in result.metadata] == [
+            (KIND, PAYLOAD),
+        ]
+    finally:
+        install_mcp_meta_namespace(DEFAULT_MCP_META_NAMESPACE)
+
+
+async def test_a_key_outside_the_installed_namespace_declares_nothing() -> None:
+    install_mcp_meta_namespace("com.example.assistant")
+    try:
+        toolset = UntrustedOutputToolset(_declaring_source(), part_namespace="eda")
+
+        result = await _call(toolset, "call_1")
+
+        assert isinstance(result, ToolReturn)
+        assert [chunk.type for chunk in result.metadata] == ["data-tool-summary"]
+    finally:
+        install_mcp_meta_namespace(DEFAULT_MCP_META_NAMESPACE)
+
+
+def test_the_key_a_deployment_names_nothing_for_is_the_organisation_default() -> None:
+    assert stream_part_meta_key() == "org.veupathdb.assistant/streamPart"

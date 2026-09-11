@@ -18,7 +18,7 @@ from assistant_core.mcp.admission import (
     CredentialMode,
 )
 from assistant_core.mcp.declaration import ToolSourceDeclaration
-from assistant_core.mcp.untrusted import STREAM_PART_META_KEY
+from assistant_core.mcp.untrusted import stream_part_meta_key
 
 SOURCE_ID = "catalog-server"
 SOURCE_NAME = "catalog"
@@ -45,7 +45,7 @@ def build_tool_server() -> FastMCP:
     @server.tool(
         annotations={"readOnlyHint": True},
         output_schema=THING_OUTPUT_SCHEMA,
-        meta={STREAM_PART_META_KEY: {"kind": STREAM_PART_KIND, "version": 1}},
+        meta={stream_part_meta_key(): {"kind": STREAM_PART_KIND, "version": 1}},
     )
     def read_thing(name: str) -> dict[str, Any]:
         """Read one thing."""

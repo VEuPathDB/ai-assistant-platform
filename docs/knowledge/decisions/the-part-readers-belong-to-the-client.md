@@ -51,9 +51,13 @@ read `data-sub-agent-call`, and they now read it through one `readDispatch`.
 # What was rejected
 
 **Leaving the folds in the application.** Rejected: they name no application
-concept. Every kind they read is in the protocol's own table, and the package
+concept. Every kind they read is a kind the wire carries, and the package
 already carried a conformance test for each of them while exporting nothing to
-fold them.
+fold them. Three of those kinds are not in the core table: `data-lead-usage`,
+`data-sub-agent-call` and `data-sub-agent-step` are registered by an assistant
+whose agents are a lead and its sub-agents, which section 5.2 permits, and the
+readers over them stay here because a client reads a shape and not a
+deployment.
 
 **Coercing with `Number()`, so a stringified count still totals.** Rejected: it
 accepts payloads no producer of this protocol emits, and it was one half of the

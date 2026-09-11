@@ -12,6 +12,7 @@ from assistant_core.conversation.ui_message_reducer import (
 )
 from assistant_core.persistence.models import ConversationEvent
 from assistant_core.platform.db import async_session_factory
+from assistant_core.platform.metrics import TurnTimeline
 
 
 async def append_chunk(
@@ -94,6 +95,7 @@ class ChatEventWriter:
     def __init__(self, *, conversation_id: UUID, turn_id: UUID) -> None:
         self.conversation_id = conversation_id
         self.turn_id = turn_id
+        self.timeline = TurnTimeline()
         self._gate = EmptyPartGate()
         self._last_event_id = 0
 
@@ -103,6 +105,7 @@ class ChatEventWriter:
         A start chunk the gate holds returns the id of the row before it.
         """
         for admitted in self._gate.admit(chunk):
+            self.timeline.observe(admitted)
             self._last_event_id = await append_chunk(
                 conversation_id=self.conversation_id,
                 chunk=admitted,

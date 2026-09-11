@@ -158,6 +158,12 @@ The document ships inside the runtime package, so an installed consumer reads it
 at `Path(assistant_core.__file__).parent / "PROTOCOL.md"`, the same bytes the
 deployment serves. `tests/packaging` builds the wheel and reads it back.
 
+What a host writes to serve that wire is
+[embedding the runtime in a host](docs/knowledge/conventions/embedding-the-runtime-in-a-host.md):
+the runtime call behind each of the three endpoints, the order a chat handler
+runs, the installs a worker makes before its first job, and the refusals a host
+maps onto status codes.
+
 ## mcp-conformance is an admission gate
 
 `mcp_conformance` is the suite an MCP tool server passes before a deployment
