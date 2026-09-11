@@ -91,11 +91,10 @@ class MessagesRepository:
         return total_tokens, total_cost
 
     async def mark_turn_completed(self, message_id: UUID) -> None:
-        """Flag an assistant message as the verification-complete row of its turn.
+        """Flag an assistant message as the completed row of its turn.
 
-        The autowrite path reads ``metadata.turnCompleted == true`` on
-        verification messages to count successful turns without consulting
-        the in-flight pipeline state.
+        The autowrite path reads ``metadata.turnCompleted == true`` to count
+        successful turns without consulting the in-flight pipeline state.
         """
         message = await self.session.get(Message, message_id)
         if message is None:

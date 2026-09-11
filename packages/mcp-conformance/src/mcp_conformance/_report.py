@@ -9,7 +9,7 @@ from pydantic import Field, SecretStr
 
 from mcp_conformance import __version__
 from mcp_conformance._evidence import ServerRecord, ShapeEvidence, ToolRecord
-from mcp_conformance._options import BEARER_MINIMUM
+from mcp_conformance._options import DEFAULT_BEARER_MINIMUM
 from mcp_conformance._wire import WireModel
 
 SUITE_NAME = "veupathdb-mcp-conformance"
@@ -20,9 +20,10 @@ Verdict = Literal["pass", "fail", "incomplete"]
 REDACTED = "<redacted>"
 
 # A run of a credential this long or longer is treated as the credential
-# itself, so a shortened repr cannot carry one. It is half the shortest bearer
-# the suite accepts, so a run that long is the credential and not prose.
-RUN_MINIMUM = BEARER_MINIMUM // 2
+# itself, so a shortened repr cannot carry one. It is half the suite's own
+# default minimum, so a run that long is the credential and not prose, and a
+# target that relaxes its minimum does not lower this floor.
+RUN_MINIMUM = DEFAULT_BEARER_MINIMUM // 2
 
 # The one thing the report leaves out of a tool row. An operator signs what a
 # tool returns; what it takes is the server's own document.

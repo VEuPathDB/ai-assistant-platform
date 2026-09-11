@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import math
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from datetime import UTC, datetime
 from uuid import UUID
 
@@ -72,18 +72,20 @@ async def retrieve_relevant_memories(
     store: MemoryStore,
     user_id: UUID,
     query: str,
-    site_id: str | None,
     kinds: Sequence[str],
+    keep: Callable[[MemoryValue], bool] | None = None,
     top_k: int = 8,
 ) -> list[StoredMemory]:
     """Search every auto-retrieve-enabled namespace, rerank by hybrid score.
 
-    Each namespace is queried for up to ``top_k // 2`` hits; candidates are
-    filtered by ``auto_retrieve`` + site compatibility, then scored via
-    :func:`hybrid_score` using the HNSW cosine similarity as the
-    ``semantic`` signal. Returns the global top ``top_k`` as
-    :class:`StoredMemory` (carrying ``key`` + ``score`` for display) — call
-    ``.value`` for the bare :class:`MemoryValue`.
+    Each namespace is queried for up to ``top_k // 2`` hits; candidates the
+    writer marked ``auto_retrieve`` and ``keep`` accepts are scored via
+    :func:`hybrid_score` using the HNSW cosine similarity as the ``semantic``
+    signal. Returns the global top ``top_k`` as :class:`StoredMemory`
+    (carrying ``key`` + ``score`` for display); call ``.value`` for the bare
+    :class:`MemoryValue`. ``keep`` is the caller's scope rule, such as the data
+    host a memory belongs to; a caller that supplies none ranks every
+    candidate.
     """
     per_kind = max(1, top_k // 2)
     all_hits: list[StoredMemory] = []
@@ -97,11 +99,7 @@ async def retrieve_relevant_memories(
         for stored in hits:
             if not stored.value.auto_retrieve:
                 continue
-            if (
-                site_id is not None
-                and stored.value.site_id is not None
-                and stored.value.site_id != site_id
-            ):
+            if keep is not None and not keep(stored.value):
                 continue
             all_hits.append(stored)
     reranked = rerank_by_hybrid_score(all_hits)

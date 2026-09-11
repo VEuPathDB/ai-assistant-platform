@@ -18,6 +18,8 @@ Choices made deliberately, each naming the alternative that was rejected and why
 - [A tool source's session belongs to the turn](a-tool-source-session-belongs-to-the-turn.md) - the turn's driver opens and closes every declared MCP session
 - [The admitted tool sources are installed by the host](admitted-tool-sources-are-installed-by-the-host.md) - admission is a value a host installs once, never a field parsed from the environment
 - [The runtime's stored defaults name no product](the-runtime-defaults-name-no-product.md) - the application and assistant defaults are `default`, and a host stamps its own id
+- [A set only a host can enumerate is a validated string](a-closed-set-the-host-owns-is-a-validated-string.md) - a memory kind and a credential mode are checked for shape and never for membership
+- [Retrieval ranks, and the caller says which memories are in scope](the-scope-of-a-memory-is-the-callers.md) - the scope rule is a predicate the host passes, so the runtime reads no request field of its own
 - [Input screening is configured by the host](input-screening-is-configured-by-the-host.md) - the model directory is a constructor argument, the rejection is a plain error, and the ONNX runtime is an optional extra
 - [Ownership is answered here and the status code is the host's](ownership-is-answered-here-and-the-status-code-is-the-hosts.md) - a thread belongs to a user under one application, and the refusal is a plain error the host maps
 - [A stop is a row, and the host releases the job](a-stop-is-a-row-and-the-host-releases-the-job.md) - the running worker polls a durable row, and a dead worker's turn ends by failing the job that holds it
@@ -26,6 +28,7 @@ Choices made deliberately, each naming the alternative that was rejected and why
 - [The compactor agent is supplied by the host](the-compactor-agent-is-supplied-by-the-host.md) - the gate, the trim, the cost and the write-back are the runtime's; the agent that rewrites the notes is an argument
 - [The runtime defers onto the host's queue](the-runtime-defers-onto-the-hosts-queue.md) - the deferral, the parked call, the progress and the completion turn are the runtime's; the procrastinate application and four seams are installed by the host
 - [A durable tool is declared once](a-durable-tool-is-declared-once.md) - one declaration names the decorator, the job and the worker body, so the three strings cannot drift
+- [The host names the durable queue](the-host-names-the-durable-queue.md) - `install_task_app` carries the queue name, and the runtime's default says what runs on it
 
 ## Persistence
 

@@ -114,8 +114,9 @@ host's, and a host builds one only when a ceiling is passed. The runtime owns
 the gate, the token trim, the cost and the write-back.
 
 `assistant_core.tasks` runs durable tools on a queue the host opens.
-`install_task_app(app)` gives the runtime the procrastinate application and its
-schema; `install_worker_context(build)` builds the turn context a durable body
+`install_task_app(app, durable_queue=...)` gives the runtime the procrastinate
+application, its schema and the name of the queue durable jobs run on, which a
+worker reads back from `worker_queues()`; `install_worker_context(build)` builds the turn context a durable body
 reads; `install_completion_turn(run)` drives the turn a finished task opens;
 `install_durable_job_context(ctx)` carries state a worker cannot re-derive, so
 the runtime names no product's credential. Each of those has a `reset_*` in the
@@ -126,7 +127,7 @@ the queue's own log lines, so no host filter matches on a product's key name.
 job and the worker body all read that value.
 `assistant_core.tasks.heartbeat.HeartbeatThread` writes the beat that
 `worker_dead_heartbeat_seconds` reads, and the settings refuse a beat too slow
-for that window. `assistant_core.tasks.names` holds the queues and the job
+for that window. `assistant_core.tasks.names` holds the queue and job
 names a host wires, and `assistant_core.tasks.chat_turn` states the two fields
 the stalled-job sweep reads out of a host's chat-turn payload.
 

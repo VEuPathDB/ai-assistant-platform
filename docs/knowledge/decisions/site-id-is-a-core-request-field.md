@@ -38,6 +38,11 @@ of neutrality and costs the protocol a name a client already sends, every
 stored chunk that carries it, and a major version under section 10's rule. The
 field is core; a synonym would not make it less VEuPathDB-shaped.
 
+Memory retrieval used to read `MemoryValue.site_id` and drop a candidate from
+another data host. It no longer does: the scope rule is a predicate the caller
+passes
+([retrieval ranks, and the caller says which memories are in scope](the-scope-of-a-memory-is-the-callers.md)).
+
 # Anchor
 
 `assistant_core/graph/turn_state.py` and `PROTOCOL.md` section 12.2. Done if

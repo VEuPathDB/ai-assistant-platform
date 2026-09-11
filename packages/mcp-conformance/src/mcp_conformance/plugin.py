@@ -18,7 +18,10 @@ from mcp_conformance._evidence import (
 )
 from mcp_conformance._options import (
     BEARER_ENV,
+    BEARER_MINIMUM_ENV,
+    BEARER_MINIMUM_OPTION,
     BEARER_OPTION,
+    DEFAULT_BEARER_MINIMUM,
     DEFAULT_MAX_CALL_SECONDS,
     ENDPOINT_ENV,
     ENDPOINT_OPTION,
@@ -98,6 +101,14 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         default=None,
         help=f"Budget for a tool that declares none. Default {DEFAULT_MAX_CALL_SECONDS}.",
     )
+    group.addoption(
+        BEARER_MINIMUM_OPTION,
+        default=None,
+        help=(
+            "Shortest bearer this deployment admits. "
+            f"Default {DEFAULT_BEARER_MINIMUM}. Also read from ${BEARER_MINIMUM_ENV}."
+        ),
+    )
 
 
 def option_value(config: pytest.Config, name: str, env: str) -> str | None:
@@ -113,6 +124,7 @@ def target_of(config: pytest.Config) -> ConformanceTarget | None:
         return None
     samples = option_value(config, SAMPLE_ARGS_OPTION, "")
     budget = option_value(config, MAX_CALL_SECONDS_OPTION, "")
+    minimum = option_value(config, BEARER_MINIMUM_OPTION, BEARER_MINIMUM_ENV)
     return ConformanceTarget(
         endpoint=endpoint,
         bearer=option_value(config, BEARER_OPTION, BEARER_ENV),
@@ -121,6 +133,7 @@ def target_of(config: pytest.Config) -> ConformanceTarget | None:
         slow_tool=option_value(config, SLOW_TOOL_OPTION, ""),
         isolation_tool=option_value(config, ISOLATION_TOOL_OPTION, ""),
         max_call_seconds=DEFAULT_MAX_CALL_SECONDS if budget is None else float(budget),
+        bearer_minimum=DEFAULT_BEARER_MINIMUM if minimum is None else int(minimum),
     )
 
 

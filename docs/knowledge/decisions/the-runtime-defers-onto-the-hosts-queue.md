@@ -22,7 +22,7 @@ process:
 
 | seam | what a host supplies |
 | --- | --- |
-| `install_task_app` | the procrastinate application and its schema |
+| `install_task_app` | the procrastinate application, its schema and the name of the durable queue |
 | `install_worker_context` | the turn context a durable body reads, built from the thread |
 | `install_completion_turn` | the driver that runs the turn a finished task opens |
 | `install_durable_job_context` | state the deferring process holds that the worker cannot re-derive |
@@ -31,10 +31,12 @@ Each seam has a matching `reset_*` in the same module, so a process that
 re-composes installs again instead of writing the holder's private field.
 
 The runtime also declares the names the host wires:
-`assistant_core.tasks.names` holds the queues, `chat_turn:run`,
+`assistant_core.tasks.names` holds the queue names, `chat_turn:run`,
 `maintenance:release_stalled_jobs` and `durable_job_name`. A host's periodic
-registration and its worker's queue list read them rather than repeating the
-strings.
+registration reads them rather than repeating the strings, and its worker
+subscribes to `assistant_core.tasks.app.worker_queues()`, which carries the
+durable queue the host named
+([the host names the durable queue](the-host-names-the-durable-queue.md)).
 
 The job context is the seam that keeps a product's credential out of this
 package. A host subclasses `DurableJobState`, types every credential field
@@ -75,6 +77,10 @@ The durable job's kwargs changed shape: `veupathdb_auth_token` went and
 under the previous signature reaches the new worker and fails on an unexpected
 keyword argument. **Drain the durable queue before the deploy that takes this
 release.**
+
+The queue's name became the host's in a later release. `WORKER_QUEUES` is gone
+and `worker_queues()` answers in its place, so a host that names the queue it
+already runs on keeps every queued job and drains nothing.
 
 # What was rejected
 

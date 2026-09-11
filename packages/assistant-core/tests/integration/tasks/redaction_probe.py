@@ -40,13 +40,13 @@ from assistant_core.platform.db import async_session_factory
 from assistant_core.platform.logging import setup_logging
 from assistant_core.registry import AssistantRegistry, install_assistant_registry
 from assistant_core.spec import AssistantSpec, TurnContextRequest, TurnStart
+from assistant_core.tasks.app import durable_task_queue
 from assistant_core.tasks.declaration import declare_durable_tool, register_durable_impl
 from assistant_core.tasks.job_context import (
     CarriedSecret,
     DurableJobState,
     install_durable_job_context,
 )
-from assistant_core.tasks.names import DURABLE_TASK_QUEUE
 from assistant_core.tasks.payloads import DurableTaskPayload
 from assistant_core.tasks.progress import TaskProgressEmitter
 from assistant_core.tasks.runner import (
@@ -301,7 +301,7 @@ async def run(scenario: Scenario) -> ProbeResult:
         )
         worker = Worker(
             app=app,
-            queues=[DURABLE_TASK_QUEUE],
+            queues=[durable_task_queue()],
             name=worker_name(scenario),
             concurrency=1,
             wait=False,

@@ -1,11 +1,27 @@
 """Which servers a deployment admits, and where the runtime reads that set."""
 
+import re
 from collections import Counter
 from typing import Literal, Self
 
-from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    PrivateAttr,
+    field_validator,
+    model_validator,
+)
 
-type CredentialMode = Literal["none", "service", "veupathdb_user"]
+# The one credential mode the runtime interprets: a source admitted on it is
+# never asked for a credential. Every other mode is the deployment's own word
+# and reaches the host's credential callback unread.
+NO_CREDENTIAL = "none"
+
+# The shape of a mode, which the runtime owns. Which modes exist is the
+# deployment's.
+_CREDENTIAL_MODE_SHAPE = re.compile(r"[a-z][a-z0-9_]*")
+
 type ApprovalPolicy = Literal["annotations", "always"]
 
 
@@ -16,11 +32,19 @@ class AdmissionRecord(BaseModel):
 
     source_id: str = Field(min_length=1)
     endpoint: str = Field(min_length=1)
-    credential_mode: CredentialMode = "none"
+    credential_mode: str = NO_CREDENTIAL
     part_namespace: str = Field(pattern=r"^[a-z][a-z0-9-]*$")
     approval_policy: ApprovalPolicy = "annotations"
     max_call_seconds: int = Field(default=60, ge=1)
     content_trust: Literal["untrusted"] = "untrusted"
+
+    @field_validator("credential_mode")
+    @classmethod
+    def _mode_is_a_name(cls, value: str) -> str:
+        if _CREDENTIAL_MODE_SHAPE.fullmatch(value) is None:
+            msg = "a credential mode is a non-empty snake_case name"
+            raise ValueError(msg)
+        return value
 
 
 class AdmittedSources(BaseModel):
@@ -85,10 +109,10 @@ def get_admitted_sources() -> AdmittedSources:
 
 
 __all__ = [
+    "NO_CREDENTIAL",
     "AdmissionRecord",
     "AdmittedSources",
     "ApprovalPolicy",
-    "CredentialMode",
     "get_admitted_sources",
     "install_admitted_sources",
 ]

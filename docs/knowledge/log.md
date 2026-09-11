@@ -2,6 +2,60 @@
 
 ## 2026-09-11
 
+The runtime states the shape of a memory kind and no longer its set.
+`MemoryValue.kind` is a non-empty snake_case string, which is what the store,
+the retriever and the tombstone index always took, and `MemoryKind` is gone.
+An assistant declares the kinds it publishes on `AssistantSpec.memory_kinds`
+and serves them itself, so a second consumer adds a kind in its own code and
+its memories cross the wire like any other. The wire document is unchanged:
+`PROTOCOL.md` names no memory kind, and the memory payload the runtime writes
+has always carried the kind as a string. PathFinder declares its five kinds,
+`gene_set`, `strategy`, `preference`, `knowledge` and `case`, in its own
+schema, and regenerates its TypeScript types, because the generated union is a
+string until the host narrows it.
+
+`AdmissionRecord.credential_mode` is a non-empty snake_case string too. The
+runtime interprets one value, `NO_CREDENTIAL`, under which a source is never
+asked for a credential; every other mode reaches the host's credential callback
+with the whole record, so a deployment admits a source under a mode it names
+itself and no release adds a word the runtime ignores. PathFinder declares
+`veupathdb_user` in its own admission configuration, where it already sits, and
+its callback keeps matching on it.
+
+The memory draft's field descriptions are the tool schema a model reads, so
+they name a short recall-friendly title and optional retrieval tags and no
+example from any domain. A deployment that wants its own examples writes them
+on its own memory tool, beside the scratchpad guidance it already supplies.
+PathFinder puts its title example, its tag vocabulary and its note about the
+site id on its `remember` tool.
+
+`retrieve_relevant_memories` takes a `keep` predicate in place of `site_id`.
+The runtime searches, withholds what the writer marked not auto-retrieve,
+scores and ranks; which memories are in scope is the caller's rule, so the
+decision that keeps `siteId`, `mode` and `phase` on the generic turn state is
+true of the code again: the runtime carries the three and branches on none.
+PathFinder passes the predicate at its one call site, keeping today's rule that
+a memory of another data host is out of scope.
+
+The queue durable tool jobs run on is named by the host.
+`install_task_app(app, durable_queue=...)` carries it, `durable_task_queue()`
+answers it, `worker_queues()` replaces `WORKER_QUEUES`, and the runtime's
+default is `durable`, which says what runs on the queue and names no product.
+An operator reading a queue dashboard reads a name for the work, and a
+deployment keeps a queue it already runs by naming it. PathFinder declares
+`verification`, the queue its jobs are already on, and drains nothing.
+`assistant-core` is 0.3.0a7.
+
+The conformance suite takes its bearer minimum from the runner.
+`--mcp-bearer-minimum`, with the `MCP_CONFORMANCE_BEARER_MINIMUM` fallback the
+other options have, states the shortest secret the deployment under test
+admits; the default is 32 and a target is refused a credential shorter than the
+minimum it states. The report's redaction floor stays half the suite's own
+default, so a relaxed target cannot lower it. A third-party server now runs the
+admission suite against its own bearer policy. PathFinder passes
+`--mcp-bearer-minimum 32` when it moves the tag, which is the value it was held
+to before.
+
 `assistant_core.platform.pydantic_base` publishes `computed`, a computed field
 a type checker reads as the value it computes. A `@computed_field` stacked on
 `@property` is a decorated property, which mypy refuses and which reads as a

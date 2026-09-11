@@ -10,9 +10,11 @@ from assistant_core.graph.durable import DURABLE_TOOLS
 from assistant_core.graph.runtime import TurnContext
 from assistant_core.tasks.app import (
     TaskAppNotInstalledError,
+    durable_task_queue,
     install_task_app,
     reset_task_app,
     task_app,
+    worker_queues,
 )
 from assistant_core.tasks.completion_turn import (
     CompletionTurn,
@@ -31,6 +33,12 @@ from assistant_core.tasks.job_context import (
     durable_job_context,
     install_durable_job_context,
     reset_durable_job_context,
+)
+from assistant_core.tasks.names import (
+    CHAT_TURN_QUEUE,
+    DEFAULT_DURABLE_TASK_QUEUE,
+    DEFAULT_QUEUE,
+    MAINTENANCE_QUEUE,
 )
 from assistant_core.tasks.runner import (
     WorkerContextNotInstalledError,
@@ -164,3 +172,26 @@ def test_the_declaration_registry_empties_and_comes_back() -> None:
 
         assert declared_durable_tools() == (outer,)
         assert "inner_tool" not in DURABLE_TOOLS
+
+
+def test_a_host_that_names_no_queue_defers_onto_the_default() -> None:
+    reset_task_app()
+
+    assert durable_task_queue() == DEFAULT_DURABLE_TASK_QUEUE
+    assert worker_queues() == (
+        CHAT_TURN_QUEUE,
+        DEFAULT_QUEUE,
+        MAINTENANCE_QUEUE,
+        DEFAULT_DURABLE_TASK_QUEUE,
+    )
+
+
+def test_the_host_names_the_queue_its_durable_work_runs_on() -> None:
+    app = procrastinate.App(connector=InMemoryConnector())
+    install_task_app(app, durable_queue="long_running")
+
+    assert durable_task_queue() == "long_running"
+    assert worker_queues()[-1] == "long_running"
+
+    reset_task_app()
+    assert durable_task_queue() == DEFAULT_DURABLE_TASK_QUEUE
