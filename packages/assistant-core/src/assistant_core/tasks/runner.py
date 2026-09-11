@@ -31,6 +31,7 @@ from assistant_core.platform.config import get_runtime_settings
 from assistant_core.platform.db import async_session_factory
 from assistant_core.platform.logging import get_logger
 from assistant_core.platform.types import JSONObject
+from assistant_core.tasks.app import durable_task_queue
 from assistant_core.tasks.completion_turn import safe_completion_turn
 from assistant_core.tasks.declaration import (
     DurableTool,
@@ -38,7 +39,6 @@ from assistant_core.tasks.declaration import (
     durable_impl,
 )
 from assistant_core.tasks.job_context import durable_job_context
-from assistant_core.tasks.names import DURABLE_TASK_QUEUE
 from assistant_core.tasks.progress import TaskProgressEmitter
 from assistant_core.tasks.redaction import install_job_payload_redaction
 from assistant_core.tasks.scope import (
@@ -140,7 +140,7 @@ def _register_one(app: procrastinate.App, tool: DurableTool) -> None:
             job_context=job_context or {},
         )
 
-    app.task(queue=DURABLE_TASK_QUEUE, name=tool.job_name)(job)
+    app.task(queue=durable_task_queue(), name=tool.job_name)(job)
 
 
 async def run_durable_task(

@@ -1,13 +1,12 @@
-"""Cross-namespace retrieval must respect site scope and the auto_retrieve flag.
+"""Cross-namespace retrieval honors the caller's scope rule and auto_retrieve.
 
-For a pathogen researcher, surfacing a memory from the wrong organism site is a
-data-correctness bug — a ``plasmodb`` (malaria) query must never return a
-``toxodb`` (toxoplasma) memory. Site-agnostic memories (``site_id is None``,
-e.g. knowledge) stay visible everywhere, and ``auto_retrieve=False`` memories
-are withheld from the graph-time retrieval entirely.
+The scope rule is the caller's predicate: a host that scopes memories to a data
+host passes one, and a memory that names no host is kept by it. A memory
+written with ``auto_retrieve=False`` is withheld from graph-time retrieval
+whatever the predicate says.
 
 These run against the real pgvector HNSW store + embeddings (only the LLM is
-ever mocked), so they also cover the ``semantic_search`` → filter → rerank
+ever mocked), so they also cover the ``semantic_search`` -> filter -> rerank
 merge across the namespaces.
 """
 
@@ -24,27 +23,25 @@ from assistant_core.memory.retrieval import retrieve_relevant_memories
 from assistant_core.memory.schemas import MemoryValue
 from assistant_core.memory.store import MemoryStore
 
-# The kinds an assistant declares; this suite uses the four the store ships with.
-DECLARED_KINDS: tuple[str, ...] = ("gene_set", "strategy", "preference", "knowledge")
+# The kinds an assistant declares; this suite uses two of the synthetic host's.
+DECLARED_KINDS: tuple[str, ...] = ("note", "knowledge")
 
 
-def _gene_set(
-    name: str, site_id: str | None, *, auto_retrieve: bool = True
-) -> MemoryValue:
+def _note(name: str, site_id: str | None, *, auto_retrieve: bool = True) -> MemoryValue:
     return MemoryValue(
-        kind="gene_set",
+        kind="note",
         name=name,
-        summary=f"kinase gene set {name} on {site_id}",
+        summary=f"measured counts note {name} on {site_id}",
         tags=[site_id] if site_id else [],
         site_id=site_id,
-        content={"gene_set_id": name},
+        content={"note_id": name},
         auto_retrieve=auto_retrieve,
         created_at=datetime.now(UTC),
     )
 
 
 @pytest.mark.asyncio
-async def test_retrieval_excludes_other_site_keeps_agnostic(
+async def test_retrieval_applies_the_callers_scope_rule(
     db_cleaner: None,
     patch_app_db_engine: None,
 ) -> None:
@@ -54,17 +51,17 @@ async def test_retrieval_excludes_other_site_keeps_agnostic(
 
     async with lifespan_memory_store(database_url) as raw:
         store = MemoryStore(store=raw)
-        await store.put(user_id=user_id, value=_gene_set("plasmo-set", "plasmodb"))
-        await store.put(user_id=user_id, value=_gene_set("toxo-set", "toxodb"))
+        await store.put(user_id=user_id, value=_note("here-note", "site-a"))
+        await store.put(user_id=user_id, value=_note("elsewhere-note", "site-b"))
         await store.put(
             user_id=user_id,
             value=MemoryValue(
                 kind="knowledge",
-                name="kinase-fact",
-                summary="kinases phosphorylate substrates",
+                name="scope-free-fact",
+                summary="measured counts are reported per thousand",
                 tags=[],
                 site_id=None,
-                content={"fact": "kinase"},
+                content={"fact": "counts"},
                 created_at=datetime.now(UTC),
             ),
         )
@@ -72,15 +69,15 @@ async def test_retrieval_excludes_other_site_keeps_agnostic(
         results = await retrieve_relevant_memories(
             store=store,
             user_id=user_id,
-            query="kinase gene set",
-            site_id="plasmodb",
+            query="measured counts note",
             kinds=DECLARED_KINDS,
+            keep=lambda memory: memory.site_id in (None, "site-a"),
             top_k=8,
         )
         names = {m.value.name for m in results}
-        assert "plasmo-set" in names, "same-site memory must be retrieved"
-        assert "kinase-fact" in names, "site-agnostic memory must be retrieved"
-        assert "toxo-set" not in names, "other-site memory must be filtered out"
+        assert "here-note" in names, "an in-scope memory must be retrieved"
+        assert "scope-free-fact" in names, "a memory with no scope must be retrieved"
+        assert "elsewhere-note" not in names, "the predicate must drop the rest"
 
 
 @pytest.mark.asyncio
@@ -89,7 +86,7 @@ async def test_retrieval_withholds_auto_retrieve_false(
     patch_app_db_engine: None,
 ) -> None:
     """A memory flagged ``auto_retrieve=False`` is excluded from graph-time
-    retrieval even when it is the strongest same-site semantic match.
+    retrieval even when it is the strongest semantic match the predicate keeps.
     """
     del db_cleaner, patch_app_db_engine
     database_url = os.environ["DATABASE_URL"]
@@ -97,20 +94,16 @@ async def test_retrieval_withholds_auto_retrieve_false(
 
     async with lifespan_memory_store(database_url) as raw:
         store = MemoryStore(store=raw)
+        await store.put(user_id=user_id, value=_note("auto-on", "site-a"))
         await store.put(
             user_id=user_id,
-            value=_gene_set("auto-on", "plasmodb"),
-        )
-        await store.put(
-            user_id=user_id,
-            value=_gene_set("auto-off", "plasmodb", auto_retrieve=False),
+            value=_note("auto-off", "site-a", auto_retrieve=False),
         )
 
         results = await retrieve_relevant_memories(
             store=store,
             user_id=user_id,
-            query="kinase gene set",
-            site_id="plasmodb",
+            query="measured counts note",
             kinds=DECLARED_KINDS,
             top_k=8,
         )

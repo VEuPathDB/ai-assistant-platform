@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from typing import Any
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 from langgraph.checkpoint.base import BaseCheckpointSaver
@@ -13,6 +13,7 @@ from langgraph.graph.state import CompiledStateGraph
 from pydantic_ai.messages import ModelMessage, ModelResponse, TextPart
 from pydantic_ai.models.function import AgentInfo, FunctionModel
 
+import assistant_core.registry
 from assistant_core.graph.runtime import TurnContext
 from assistant_core.graph.turn_state import TurnState
 from assistant_core.platform.db import async_session_factory
@@ -27,6 +28,7 @@ from assistant_core.registry import (
     assistant_registry,
     install_assistant_registry,
     reset_assistant_registry,
+    resolve_turn_assistant,
 )
 from assistant_core.spec import (
     AssistantSpec,
@@ -275,3 +277,78 @@ def test_a_turn_naming_an_assistant_this_deployment_does_not_serve_is_refused() 
 
     with pytest.raises(UnknownAssistantError):
         assistant_for_turn(registry=registry, existing_id=None, requested_id="gamma")
+
+
+async def test_resolving_a_turn_reads_the_thread_s_own_row(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The row is what the rule is applied to, for a thread that exists."""
+    conversation_id = uuid4()
+    read: list[UUID] = []
+
+    async def _row(asked: UUID) -> str | None:
+        read.append(asked)
+        return "beta"
+
+    monkeypatch.setattr(assistant_core.registry, "conversation_assistant_id", _row)
+    registry = AssistantRegistry(
+        specs=[_spec("alpha"), _spec("beta")],
+        default_id="alpha",
+    )
+
+    spec = await resolve_turn_assistant(
+        registry=registry,
+        conversation_id=conversation_id,
+        requested_id=None,
+    )
+
+    assert spec.assistant_id == "beta"
+    assert read == [conversation_id]
+
+
+async def test_resolving_a_turn_that_opens_a_thread_reads_no_row(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A caller about to create the thread names the assistant itself."""
+
+    async def _unreachable(asked: UUID) -> str | None:
+        pytest.fail(f"the row of {asked} was read")
+
+    monkeypatch.setattr(
+        assistant_core.registry, "conversation_assistant_id", _unreachable
+    )
+    registry = AssistantRegistry(
+        specs=[_spec("alpha"), _spec("beta")],
+        default_id="alpha",
+    )
+
+    spec = await resolve_turn_assistant(
+        registry=registry,
+        conversation_id=None,
+        requested_id="beta",
+    )
+
+    assert spec.assistant_id == "beta"
+
+
+async def test_a_turn_on_a_thread_of_another_assistant_is_refused(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def _row(asked: UUID) -> str | None:
+        del asked
+        return "beta"
+
+    monkeypatch.setattr(assistant_core.registry, "conversation_assistant_id", _row)
+    registry = AssistantRegistry(
+        specs=[_spec("alpha"), _spec("beta")],
+        default_id="alpha",
+    )
+
+    with pytest.raises(AssistantMismatchError) as raised:
+        await resolve_turn_assistant(
+            registry=registry,
+            conversation_id=uuid4(),
+            requested_id="alpha",
+        )
+
+    assert raised.value.existing == "beta"

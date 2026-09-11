@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
+from uuid import UUID, uuid4
 
 import pytest
 
 from assistant_core.memory.retrieval import (
     hybrid_score,
     rerank_by_hybrid_score,
+    retrieve_relevant_memories,
 )
 from assistant_core.memory.schemas import MemoryValue
 from assistant_core.memory.store import StoredMemory
@@ -24,7 +26,7 @@ def _m(
         else None
     )
     return MemoryValue(
-        kind="gene_set",
+        kind="note",
         name=name,
         summary="y",
         tags=tags,
@@ -105,3 +107,83 @@ def test_rerank_clamps_out_of_range_and_none_semantic() -> None:
     assert [s.key for s in ranked] == ["over", "none"]
     over_score = hybrid_score(memory=over.value, semantic=1.0)
     assert over_score == pytest.approx(0.90, abs=1e-9)
+
+
+class _HitsByKind:
+    """A store stand-in that answers each kind with the hits it was given."""
+
+    def __init__(self, hits: dict[str, list[StoredMemory]]) -> None:
+        self.hits = hits
+
+    async def semantic_search(
+        self,
+        *,
+        user_id: UUID,
+        kind: str,
+        query: str,
+        top_k: int = 8,
+    ) -> list[StoredMemory]:
+        del user_id, query, top_k
+        return self.hits.get(kind, [])
+
+
+def _hit(key: str, *, site_id: str | None, auto_retrieve: bool = True) -> StoredMemory:
+    value = MemoryValue(
+        kind="note",
+        name=key,
+        summary="y",
+        tags=[],
+        site_id=site_id,
+        content={},
+        auto_retrieve=auto_retrieve,
+        created_at=datetime.now(UTC),
+    )
+    return StoredMemory(key=key, value=value, score=0.5)
+
+
+@pytest.mark.asyncio
+async def test_retrieval_keeps_every_candidate_the_host_allows() -> None:
+    """The runtime scores and ranks; which memories are in scope is the host's."""
+    store = _HitsByKind(
+        {"note": [_hit("here", site_id="a"), _hit("elsewhere", site_id="b")]}
+    )
+
+    ranked = await retrieve_relevant_memories(
+        store=store,
+        user_id=uuid4(),
+        query="q",
+        kinds=("note",),
+        keep=lambda memory: memory.site_id == "a",
+    )
+
+    assert [hit.key for hit in ranked] == ["here"]
+
+
+@pytest.mark.asyncio
+async def test_retrieval_without_a_predicate_ranks_every_candidate() -> None:
+    store = _HitsByKind(
+        {"note": [_hit("here", site_id="a"), _hit("elsewhere", site_id="b")]}
+    )
+
+    ranked = await retrieve_relevant_memories(
+        store=store,
+        user_id=uuid4(),
+        query="q",
+        kinds=("note",),
+    )
+
+    assert {hit.key for hit in ranked} == {"here", "elsewhere"}
+
+
+@pytest.mark.asyncio
+async def test_retrieval_withholds_what_the_writer_marked_not_auto_retrieve() -> None:
+    store = _HitsByKind({"note": [_hit("held", site_id=None, auto_retrieve=False)]})
+
+    ranked = await retrieve_relevant_memories(
+        store=store,
+        user_id=uuid4(),
+        query="q",
+        kinds=("note",),
+    )
+
+    assert ranked == []

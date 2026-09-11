@@ -19,6 +19,8 @@ Choices made deliberately, each naming the alternative that was rejected and why
 - [The admitted tool sources are installed by the host](admitted-tool-sources-are-installed-by-the-host.md) - admission is a value a host installs once, never a field parsed from the environment
 - [The tool-hint namespace is a value a deployment names](the-meta-namespace-is-a-value-a-deployment-names.md) - a server declares its typed part under `<namespace>/streamPart`, and the default names this organisation
 - [The runtime's stored defaults name no product](the-runtime-defaults-name-no-product.md) - the application and assistant defaults are `default`, and a host stamps its own id
+- [A set only a host can enumerate is a validated string](a-closed-set-the-host-owns-is-a-validated-string.md) - a memory kind and a credential mode are checked for shape and never for membership
+- [Retrieval ranks, and the caller says which memories are in scope](the-scope-of-a-memory-is-the-callers.md) - the scope rule is a predicate the host passes, so the runtime reads no request field of its own
 - [Input screening is configured by the host](input-screening-is-configured-by-the-host.md) - the model directory is a constructor argument, the rejection is a plain error, and the ONNX runtime is an optional extra
 - [Ownership is answered here and the status code is the host's](ownership-is-answered-here-and-the-status-code-is-the-hosts.md) - a thread belongs to a user under one application, and the refusal is a plain error the host maps
 - [A stop is a row, and the host releases the job](a-stop-is-a-row-and-the-host-releases-the-job.md) - the running worker polls a durable row, and a dead worker's turn ends by failing the job that holds it
@@ -27,6 +29,7 @@ Choices made deliberately, each naming the alternative that was rejected and why
 - [The compactor agent is supplied by the host](the-compactor-agent-is-supplied-by-the-host.md) - the gate, the trim, the cost and the write-back are the runtime's; the agent that rewrites the notes is an argument
 - [The runtime defers onto the host's queue](the-runtime-defers-onto-the-hosts-queue.md) - the deferral, the parked call, the progress and the completion turn are the runtime's; the procrastinate application and four seams are installed by the host
 - [A durable tool is declared once](a-durable-tool-is-declared-once.md) - one declaration names the decorator, the job and the worker body, so the three strings cannot drift
+- [The host names the durable queue](the-host-names-the-durable-queue.md) - `install_task_app` carries the queue name, and the runtime's default says what runs on it
 
 ## Persistence
 
@@ -42,3 +45,7 @@ Choices made deliberately, each naming the alternative that was rejected and why
 - [The process logging setup is written per distribution](the-process-logging-setup-is-written-per-distribution.md) - the runtime and the MCP server each configure structlog, and the copies are reconciled by hand
 - [The embedder is copied, and a host gates the drift](the-embedder-is-copied-and-a-host-gates-the-drift.md) - the two distributions may not depend on each other, so the copy stays and the application that installs both compares them
 - [The camelCase model base and the test-database bootstrap are written per distribution](the-model-base-and-the-test-database-are-written-per-distribution.md) - `CamelModel` twice and the testcontainers fixture three times, because a third distribution for one base class is a dependency every consumer pays
+
+## Testing
+
+- [The test process exits with pytest's status before the ONNX destructors run](the-test-process-exits-before-the-onnx-destructors.md) - the ONNX Runtime aborts in its static destructors, so a run that imported it leaves on pytest's own status and never reaches them

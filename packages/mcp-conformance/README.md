@@ -13,9 +13,11 @@ pytest --pyargs mcp_conformance \
   --mcp-report report.json
 ```
 
-`--mcp-endpoint`, `--mcp-bearer` and `--mcp-bearer-second` also read
-`MCP_CONFORMANCE_ENDPOINT`, `MCP_CONFORMANCE_BEARER` and
-`MCP_CONFORMANCE_BEARER_SECOND`, so a credential never has to appear on a
+`--mcp-endpoint`, `--mcp-bearer`, `--mcp-bearer-second`,
+`--mcp-bearer-minimum` and `--mcp-meta-namespace` also read
+`MCP_CONFORMANCE_ENDPOINT`, `MCP_CONFORMANCE_BEARER`,
+`MCP_CONFORMANCE_BEARER_SECOND`, `MCP_CONFORMANCE_BEARER_MINIMUM` and
+`MCP_CONFORMANCE_META_NAMESPACE`, so a credential never has to appear on a
 command line.
 
 Run one family with its module name: `pytest --pyargs mcp_conformance.test_shape`.
@@ -25,13 +27,15 @@ Run one family with its module name: `pytest --pyargs mcp_conformance.test_shape
 | Option | Meaning |
 |---|---|
 | `--mcp-endpoint` | The streamable-HTTP MCP endpoint under test. Without it every family skips. |
-| `--mcp-bearer` | The credential the calls carry. A value shorter than 32 characters is refused, because no deployment admits a secret that short. |
-| `--mcp-bearer-second` | A second identity, which turns on the isolation check. Held to the same 32 character minimum. |
+| `--mcp-bearer` | The credential the calls carry. A value shorter than `--mcp-bearer-minimum` is refused before a session opens. |
+| `--mcp-bearer-second` | A second identity, which turns on the isolation check. Held to the same minimum. |
+| `--mcp-bearer-minimum` | The shortest bearer this deployment admits. Default 32. |
 | `--mcp-report` | Where the admission report JSON is written. |
 | `--mcp-sample-args` | JSON object, or a path to one, mapping a tool name to the arguments a call may use. Tools that need no arguments are called without it. |
 | `--mcp-slow-tool` | The tool the timeout family drives past its budget. |
 | `--mcp-max-call-seconds` | The budget for a tool that declares none. Default 60. |
 | `--mcp-isolation-tool` | The tool the isolation check drives, naming a resource the second identity owns. |
+| `--mcp-meta-namespace` | The reverse-DNS namespace this deployment reads a tool's hints under. Default `org.veupathdb.assistant`. A server annotated for another namespace declares nothing to this run. |
 
 ## The families
 

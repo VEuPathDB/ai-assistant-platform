@@ -113,7 +113,7 @@ def test_the_job_line_procrastinate_formats_carries_no_token_bytes(
     job = Job(
         id=41,
         status=Status.DOING.value,
-        queue="verification",
+        queue="durable",
         lock=str(uuid4()),
         queueing_lock=None,
         task_name="durable:crunch",

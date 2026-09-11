@@ -1,4 +1,5 @@
 import os
+import sys
 from collections.abc import AsyncGenerator, Generator
 from uuid import UUID
 
@@ -164,3 +165,14 @@ def empty_registry() -> Generator[None]:
     """A durable-tool declaration registry that starts empty for one test."""
     with empty_durable_tools():
         yield
+
+
+@pytest.hookimpl(wrapper=True, tryfirst=True)
+def pytest_sessionfinish(session: pytest.Session) -> Generator[None]:
+    # The ONNX runtime aborts in its static destructors. The outermost wrapper
+    # leaves the process with pytest's status, after the summary, before they run.
+    yield
+    if "onnxruntime" in sys.modules:
+        sys.stdout.flush()
+        sys.stderr.flush()
+        os._exit(int(session.exitstatus))

@@ -15,6 +15,7 @@ from pydantic_ai.mcp import MCPToolset
 from pydantic_ai.toolsets import AbstractToolset
 
 from assistant_core.mcp.admission import (
+    NO_CREDENTIAL,
     AdmissionRecord,
     AdmittedSources,
     get_admitted_sources,
@@ -133,7 +134,7 @@ class ResolvedToolSources:
             )
 
     def _credential_for(self, record: AdmissionRecord) -> str | None:
-        if record.credential_mode == "none":
+        if record.credential_mode == NO_CREDENTIAL:
             return None
         return self.credential(record)
 

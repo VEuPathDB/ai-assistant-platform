@@ -8,6 +8,7 @@ import pytest
 from procrastinate.testing import InMemoryConnector
 
 from assistant_core.graph.durable import DURABLE_TOOLS
+from assistant_core.tasks.app import install_task_app, reset_task_app
 from assistant_core.tasks.declaration import (
     DuplicateDurableToolError,
     DurableTool,
@@ -94,16 +95,22 @@ def test_every_declared_tool_gets_a_job_of_the_matching_name_and_queue() -> None
     declare_durable_tool(tool_name="crunch", estimated_duration_seconds=90)
     declare_durable_tool(tool_name="sift", estimated_duration_seconds=30)
     app = procrastinate.App(connector=InMemoryConnector())
+    install_task_app(app, durable_queue="long_running")
+    try:
+        register_durable_jobs(app)
 
-    register_durable_jobs(app)
-
-    declared = {
-        name: task.queue
-        for name, task in app.tasks.items()
-        if name.startswith("durable:")
-    }
-    assert declared == {
-        "durable:crunch": "verification",
-        "durable:sift": "verification",
-    }
-    assert [tool.tool_name for tool in declared_durable_tools()] == ["crunch", "sift"]
+        declared = {
+            name: task.queue
+            for name, task in app.tasks.items()
+            if name.startswith("durable:")
+        }
+        assert declared == {
+            "durable:crunch": "long_running",
+            "durable:sift": "long_running",
+        }
+        assert [tool.tool_name for tool in declared_durable_tools()] == [
+            "crunch",
+            "sift",
+        ]
+    finally:
+        reset_task_app()

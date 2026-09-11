@@ -19,9 +19,11 @@ async def connector() -> AsyncGenerator[InMemoryConnector]:
     in_memory = InMemoryConnector()
     app = procrastinate.App(connector=in_memory)
     install_task_app(app)
-    async with app.open_async():
-        yield in_memory
-    reset_task_app()
+    try:
+        async with app.open_async():
+            yield in_memory
+    finally:
+        reset_task_app()
 
 
 async def test_a_deferred_turn_names_the_runtimes_task_and_locks_its_thread(

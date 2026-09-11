@@ -16,12 +16,12 @@ from pydantic_ai.usage import RunUsage
 from pydantic_core import SchemaValidator, core_schema
 
 from assistant_core.mcp.untrusted import (
-    DEFAULT_MCP_META_NAMESPACE,
     PartNamespaceViolationError,
     PartViolation,
     ScanVerdict,
     UntrustedOutputToolset,
     install_mcp_meta_namespace,
+    reset_mcp_meta_namespace,
     stream_part_meta_key,
 )
 
@@ -362,7 +362,7 @@ async def test_a_deployment_that_names_its_own_namespace_reads_that_key() -> Non
             (KIND, PAYLOAD),
         ]
     finally:
-        install_mcp_meta_namespace(DEFAULT_MCP_META_NAMESPACE)
+        reset_mcp_meta_namespace()
 
 
 async def test_a_key_outside_the_installed_namespace_declares_nothing() -> None:
@@ -375,7 +375,7 @@ async def test_a_key_outside_the_installed_namespace_declares_nothing() -> None:
         assert isinstance(result, ToolReturn)
         assert [chunk.type for chunk in result.metadata] == ["data-tool-summary"]
     finally:
-        install_mcp_meta_namespace(DEFAULT_MCP_META_NAMESPACE)
+        reset_mcp_meta_namespace()
 
 
 def test_the_key_a_deployment_names_nothing_for_is_the_organisation_default() -> None:

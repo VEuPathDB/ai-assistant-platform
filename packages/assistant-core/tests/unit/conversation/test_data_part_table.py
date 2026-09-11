@@ -73,8 +73,21 @@ def _called_here() -> set[str]:
     return called
 
 
-def test_the_builders_carry_a_kind_each() -> None:
-    assert len(_builders()) >= 10
+def _chunk_returning() -> set[str]:
+    """Every function in the chunk module whose return type is a ``DataChunk``."""
+    tree = ast.parse(BUILDERS.read_text())
+    return {
+        node.name
+        for node in tree.body
+        if isinstance(node, ast.FunctionDef)
+        and isinstance(node.returns, ast.Name)
+        and node.returns.id == "DataChunk"
+    }
+
+
+def test_every_builder_names_the_kind_it_returns() -> None:
+    """A kind the parse cannot read is a kind the table is never checked for."""
+    assert set(_builders()) == _chunk_returning()
 
 
 def test_the_table_names_every_kind_something_here_emits() -> None:
@@ -82,6 +95,13 @@ def test_the_table_names_every_kind_something_here_emits() -> None:
     emitted = {kind for name, kind in _builders().items() if name in called}
 
     assert emitted - _table_kinds() == set()
+
+
+def test_the_table_names_the_parts_the_runtime_registers_and_no_others() -> None:
+    registry = StreamPartRegistry()
+    register_core_stream_parts(registry)
+
+    assert _table_kinds() == registry.kinds()
 
 
 def test_the_core_registry_carries_the_kind_the_scratchpad_emits() -> None:

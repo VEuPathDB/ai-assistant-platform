@@ -48,7 +48,7 @@ from assistant_core.persistence.models import ConversationEvent
 from assistant_core.platform.config import get_runtime_settings
 from assistant_core.platform.db import async_session_factory
 from assistant_core.platform.logging import get_logger
-from assistant_core.platform.metrics import SseSubscription, chunk_kind
+from assistant_core.platform.metrics import SseSubscription
 from assistant_core.platform.pydantic_base import CamelModel
 
 logger = get_logger(__name__)
@@ -433,7 +433,7 @@ async def _frames(
             UserMessageChunk | SystemMessageChunk | AssistantMessageChunk,
         ):
             continue
-        subscription.event(chunk_kind(chunk))
+        subscription.event(str(chunk["type"]))
         yield _frame_event(event_id, typed)
         if isinstance(typed, DoneChunk):
             return

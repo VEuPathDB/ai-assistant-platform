@@ -6,7 +6,11 @@ A host serves three endpoints and starts a worker from this repository alone.
 `docs/knowledge/conventions/embedding-the-runtime-in-a-host.md` names, for each
 endpoint `PROTOCOL.md` specifies, the runtime call that serves it, the ten
 steps a chat handler runs in order, the seven installs a worker makes before
-its first job, and the seven refusals a host maps onto status codes.
+its first job, and the seven refusals a host maps onto status codes. The write
+path reads a thread it did not create through `get_owned_conversation`, so a
+turn is refused before it is written onto a thread another account holds, and
+a unit test resolves every name the page prints, so a page that outlives a
+symbol fails here rather than in a host.
 `packages/assistant-core/README.md` states what the distribution is and points
 at both.
 
@@ -38,8 +42,11 @@ The runtime records its own instruments. `assistant_core.platform.metrics`
 holds five turn series and six event-stream series, and each is recorded by the
 code that observes the event: the chunk writer times the turn it writes, the
 turn's message carries its tokens, and one SSE subscription counts its own
-frames and says how it ended. A process that configures no meter provider
-records to a no-op sink.
+frames and says how it ended. `install_meter_provider(provider)` names the
+provider the instruments are built on, and a process that installs none records
+on the global metrics API, which is a no-op sink until something configures it.
+A test that reads points owns its provider, so what one suite records is not
+what another reads.
 
 The write-through store and the fire-and-forget spawner are the runtime's.
 `assistant_core.platform.store.WriteThruStore` caches an entity and writes its
@@ -51,9 +58,68 @@ is a declared dependency, because the store retries.
 A tool server declares its hints under the namespace its own deployment names.
 `assistant_core.mcp.untrusted.DEFAULT_MCP_META_NAMESPACE` is
 `org.veupathdb.assistant`, `install_mcp_meta_namespace` names another for a
-process, and the conformance suite builds both of its keys from one constant of
-its own. One decision is new: the tool-hint namespace is a value a deployment
-names. `assistant-core` is 0.3.0a7.
+process and `reset_mcp_meta_namespace` puts the default back, and the
+conformance suite takes the namespace from its runner as
+`--mcp-meta-namespace`, so a server annotated for its own deployment is
+reported on what it declared instead of as a server that declared nothing. One
+decision is new: the tool-hint namespace is a value a deployment names.
+
+The runtime states the shape of a memory kind and no longer its set.
+`MemoryValue.kind` is a non-empty snake_case string, which is what the store,
+the retriever and the tombstone index always took, and `MemoryKind` is gone.
+An assistant declares the kinds it publishes on `AssistantSpec.memory_kinds`
+and serves them itself, so a second consumer adds a kind in its own code and
+its memories cross the wire like any other. The runtime's own scratchpad names
+no kind either: `build_scratchpad_toolset(promoted_kind=...)` states the kind a
+promoted note is written under. The wire document is unchanged:
+`PROTOCOL.md` names no memory kind, and the memory payload the runtime writes
+has always carried the kind as a string. PathFinder declares its five kinds,
+`gene_set`, `strategy`, `preference`, `knowledge` and `case`, in its own
+schema, and regenerates its TypeScript types, because the generated union is a
+string until the host narrows it.
+
+`AdmissionRecord.credential_mode` is a non-empty snake_case string too. The
+runtime interprets one value, `NO_CREDENTIAL`, under which a source is never
+asked for a credential; every other mode reaches the host's credential callback
+with the whole record, so a deployment admits a source under a mode it names
+itself and no release adds a word the runtime ignores. PathFinder declares
+`veupathdb_user` in its own admission configuration, where it already sits, and
+its callback keeps matching on it.
+
+The memory draft's field descriptions are the tool schema a model reads, so
+they name a short recall-friendly title and optional retrieval tags and no
+example from any domain. A deployment that wants its own examples writes them
+on its own memory tool, beside the scratchpad guidance it already supplies.
+PathFinder puts its title example, its tag vocabulary and its note about the
+site id on its `remember` tool.
+
+`retrieve_relevant_memories` takes a `keep` predicate in place of `site_id`.
+The runtime searches, withholds what the writer marked not auto-retrieve,
+scores and ranks; which memories are in scope is the caller's rule, so the
+decision that keeps `siteId`, `mode` and `phase` on the generic turn state is
+true of the code again: the runtime carries the three and branches on none.
+PathFinder passes the predicate at its one call site, keeping today's rule that
+a memory of another data host is out of scope.
+
+The queue durable tool jobs run on is named by the host.
+`install_task_app(app, durable_queue=...)` carries it, `durable_task_queue()`
+answers it, `worker_queues()` replaces `WORKER_QUEUES`, and the runtime's
+default is `durable`, which says what runs on the queue and names no product.
+An operator reading a queue dashboard reads a name for the work, and a
+deployment keeps a queue it already runs by naming it. PathFinder declares
+`verification`, the queue its jobs are already on, and drains nothing.
+`assistant-core` is 0.3.0a7, `veupathdb-mcp-conformance` is 0.1.3 and
+`@veupathdb/assistant-client` is 0.3.0-alpha.2.
+
+The conformance suite takes its bearer minimum from the runner.
+`--mcp-bearer-minimum`, with the `MCP_CONFORMANCE_BEARER_MINIMUM` fallback the
+other options have, states the shortest secret the deployment under test
+admits; the default is 32 and a target is refused a credential shorter than the
+minimum it states. The report's redaction floor stays half the suite's own
+default, so a relaxed target cannot lower it. A third-party server now runs the
+admission suite against its own bearer policy. PathFinder passes
+`--mcp-bearer-minimum 32` when it moves the tag, which is the value it was held
+to before.
 
 `assistant_core.platform.pydantic_base` publishes `computed`, a computed field
 a type checker reads as the value it computes. A `@computed_field` stacked on
@@ -61,6 +127,15 @@ a type checker reads as the value it computes. A `@computed_field` stacked on
 bound method without the `@property`; `computed` wraps the property itself, so
 the attribute is typed as its value under both checkers and serializes like a
 field. `assistant-core` is 0.3.0a6.
+
+A test run that imported the ONNX Runtime leaves on pytest's own status. The
+runtime aborts in its static destructors at interpreter shutdown, which turned
+a green unit run into exit 134 in most runs on one machine, and CI reads the
+exit code. The suite's `pytest_sessionfinish` hook is the outermost wrapper
+around the session, so it runs after the summary is written; it flushes both
+streams and exits with the status pytest computed, and a failing run still
+fails. One decision is new: the test process exits with pytest's status before
+the ONNX destructors run.
 
 ## 2026-09-10
 

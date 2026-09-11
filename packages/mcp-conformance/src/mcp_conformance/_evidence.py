@@ -8,17 +8,15 @@ from pydantic import Field
 
 from mcp_conformance._wire import WireModel
 
-# The reverse-DNS namespace a server declares its runtime hints under. The
-# runtime reads the same default (assistant-core: mcp/untrusted.py), and the
-# two values must name one namespace for a run to read a server's hints.
-MCP_META_NAMESPACE = "org.veupathdb.assistant"
 
-# The tool-level key a server declares to render its payload as a typed part.
-STREAM_PART_META_KEY = f"{MCP_META_NAMESPACE}/streamPart"
+def stream_part_meta_key(namespace: str) -> str:
+    """The key a server declares the typed part its payload fills under."""
+    return f"{namespace}/streamPart"
 
-# The tool-level key a server declares when one call needs more than the
-# source's default budget.
-MAX_CALL_SECONDS_META_KEY = f"{MCP_META_NAMESPACE}/maxCallSeconds"
+
+def max_call_seconds_meta_key(namespace: str) -> str:
+    """The key a server declares a call budget of its own under."""
+    return f"{namespace}/maxCallSeconds"
 
 
 class PropertySchema(WireModel):
@@ -73,16 +71,16 @@ class ToolRecord(WireModel):
     def annotation(self) -> AnnotationView:
         return AnnotationView.model_validate(self.annotations or {})
 
-    @property
-    def stream_part(self) -> StreamPartDeclaration | None:
-        declared = (self.meta or {}).get(STREAM_PART_META_KEY)
+    def stream_part(self, namespace: str) -> StreamPartDeclaration | None:
+        """The typed part this tool declares under the run's namespace."""
+        declared = (self.meta or {}).get(stream_part_meta_key(namespace))
         if declared is None:
             return None
         return StreamPartDeclaration.model_validate(declared)
 
-    @property
-    def declared_max_call_seconds(self) -> float | None:
-        declared = (self.meta or {}).get(MAX_CALL_SECONDS_META_KEY)
+    def declared_max_call_seconds(self, namespace: str) -> float | None:
+        """The budget this tool declares under the run's namespace."""
+        declared = (self.meta or {}).get(max_call_seconds_meta_key(namespace))
         if declared is None:
             return None
         return float(declared)

@@ -28,10 +28,6 @@ from tests.synthetic import (
 )
 
 import assistant_core
-from assistant_core.conversation.stream_parts.core_parts import (
-    register_core_stream_parts,
-)
-from assistant_core.conversation.stream_parts.registry import StreamPartRegistry
 from assistant_core.conversation.ui_message_reducer import (
     ASSISTANT_MESSAGE_CHUNK_TYPE,
     SYSTEM_MESSAGE_CHUNK_TYPE,
@@ -140,13 +136,6 @@ def test_every_documented_example_is_the_frame_the_runtime_emitted(
     }
 
     assert drifted == {}
-
-
-def test_the_data_part_table_lists_the_parts_the_runtime_registers() -> None:
-    registry = StreamPartRegistry()
-    register_core_stream_parts(registry)
-
-    assert set(_TABLE_KIND.findall(_section("data_parts"))) == registry.kinds()
 
 
 def _chunk_kinds() -> set[str]:

@@ -36,11 +36,12 @@ an installed consumer reads it at
 
 ## Observability
 
-`assistant_core.platform.metrics` creates the instruments on the global OTEL
-metrics API: five `assistant.turn` series, written by the chunk writer and the
-turn's message, and six `assistant.sse` series, written by one event-stream
-subscription. A process that configures no meter provider records to a no-op
-sink, so a host installs a provider and the series arrive.
+`assistant_core.platform.metrics` holds the instruments: five `assistant.turn`
+series, written by the chunk writer and the turn's message, and six
+`assistant.sse` series, written by one event-stream subscription.
+`install_meter_provider(provider)` names the provider they are built on, and a
+process that installs none records on the global OTEL metrics API, which is a
+no-op sink until something configures it.
 
 ## The tables
 

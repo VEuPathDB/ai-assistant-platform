@@ -17,6 +17,9 @@ from assistant_core.memory.store import MemoryStore
 from assistant_core.platform.db import DBSessionFactory
 from assistant_core.scratchpad import tools
 
+# The kind is the host's word; this suite stands in for a host.
+KIND = "knowledge"
+
 TITLE = "Stage-specific markers"
 BODY = "Two markers separate the mature stage from the ring stage."
 
@@ -67,7 +70,7 @@ async def test_a_promoted_note_lands_in_memory_and_stays_in_the_scratchpad(
     note_id = created.return_value["id"]
     assert isinstance(note_id, str)
 
-    key = (await tools.promote_to_memory(ctx, note_id=note_id)).return_value
+    key = (await tools.promote_note(ctx, note_id=note_id, kind=KIND)).return_value
 
     assert isinstance(key, str)
     still_there = (await tools.read_note(ctx, note_id=note_id)).return_value
@@ -76,7 +79,7 @@ async def test_a_promoted_note_lands_in_memory_and_stays_in_the_scratchpad(
 
     stored = await MemoryStore(store=memory_store).get(
         user_id=user_id,
-        kind="knowledge",
+        kind=KIND,
         key=key,
     )
     assert stored is not None
@@ -102,7 +105,7 @@ async def test_promoting_a_note_that_is_not_there_asks_the_model_to_retry(
     )
 
     with pytest.raises(ModelRetry, match="n-nope"):
-        await tools.promote_to_memory(ctx, note_id="n-nope")
+        await tools.promote_note(ctx, note_id="n-nope", kind=KIND)
 
 
 async def test_a_turn_with_no_memory_store_asks_the_model_to_retry(
@@ -118,4 +121,4 @@ async def test_a_turn_with_no_memory_store_asks_the_model_to_retry(
     )
 
     with pytest.raises(ModelRetry, match="memory store unavailable"):
-        await tools.promote_to_memory(ctx, note_id="n-whatever")
+        await tools.promote_note(ctx, note_id="n-whatever", kind=KIND)

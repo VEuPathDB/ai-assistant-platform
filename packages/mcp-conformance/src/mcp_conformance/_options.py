@@ -6,7 +6,14 @@ import os
 from pathlib import Path
 from typing import Any
 
-from pydantic import ConfigDict, Field, SecretStr, TypeAdapter, field_validator
+from pydantic import (
+    ConfigDict,
+    Field,
+    SecretStr,
+    TypeAdapter,
+    field_validator,
+    model_validator,
+)
 
 from mcp_conformance._wire import WireModel
 
@@ -18,18 +25,27 @@ SAMPLE_ARGS_OPTION = "--mcp-sample-args"
 SLOW_TOOL_OPTION = "--mcp-slow-tool"
 ISOLATION_TOOL_OPTION = "--mcp-isolation-tool"
 MAX_CALL_SECONDS_OPTION = "--mcp-max-call-seconds"
+BEARER_MINIMUM_OPTION = "--mcp-bearer-minimum"
+META_NAMESPACE_OPTION = "--mcp-meta-namespace"
 
 ENDPOINT_ENV = "MCP_CONFORMANCE_ENDPOINT"
 BEARER_ENV = "MCP_CONFORMANCE_BEARER"
 SECOND_BEARER_ENV = "MCP_CONFORMANCE_BEARER_SECOND"
+BEARER_MINIMUM_ENV = "MCP_CONFORMANCE_BEARER_MINIMUM"
+META_NAMESPACE_ENV = "MCP_CONFORMANCE_META_NAMESPACE"
 
 # The budget a tool that declares none is held to.
 DEFAULT_MAX_CALL_SECONDS = 60.0
 
-# The shortest secret a registry admits an application on
-# (veupathdb-mcp: src/veupathdb_mcp/service_tokens.py). No deployment admits a
-# shorter bearer, so the suite refuses one before it opens a session.
-BEARER_MINIMUM = 32
+# The shortest secret a deployment is assumed to admit an application on. A
+# target whose own registry issues shorter or longer secrets states its
+# minimum, and the suite refuses a bearer under it before it opens a session.
+DEFAULT_BEARER_MINIMUM = 32
+
+# The reverse-DNS namespace a server declares its runtime hints under. A
+# deployment that runs its own runtime names its own, and the suite reads the
+# hints under that namespace and no other.
+DEFAULT_META_NAMESPACE = "org.veupathdb.assistant"
 
 SampleArguments = dict[str, dict[str, Any]]
 _SAMPLES = TypeAdapter(SampleArguments)
@@ -51,6 +67,8 @@ class ConformanceTarget(WireModel):
     slow_tool: str | None = None
     isolation_tool: str | None = None
     max_call_seconds: float = DEFAULT_MAX_CALL_SECONDS
+    bearer_minimum: int = Field(default=DEFAULT_BEARER_MINIMUM, ge=1)
+    meta_namespace: str = Field(default=DEFAULT_META_NAMESPACE, min_length=1)
 
     @field_validator("bearer", "second_bearer", mode="before")
     @classmethod
@@ -58,16 +76,18 @@ class ConformanceTarget(WireModel):
         """An empty option is how the runner spells no bearer at all."""
         return value or None
 
-    @field_validator("bearer", "second_bearer", mode="after")
-    @classmethod
-    def _long_enough_to_admit(cls, value: SecretStr | None) -> SecretStr | None:
-        if value is not None and len(value.get_secret_value()) < BEARER_MINIMUM:
-            msg = (
-                f"A bearer is at least {BEARER_MINIMUM} characters, "
-                "the shortest secret a deployment admits."
-            )
-            raise ValueError(msg)
-        return value
+    @model_validator(mode="after")
+    def _long_enough_to_admit(self) -> ConformanceTarget:
+        for value in (self.bearer, self.second_bearer):
+            if value is None:
+                continue
+            if len(value.get_secret_value()) < self.bearer_minimum:
+                msg = (
+                    f"A bearer is at least {self.bearer_minimum} characters, "
+                    "the shortest secret this deployment admits."
+                )
+                raise ValueError(msg)
+        return self
 
     @property
     def credentials(self) -> tuple[SecretStr, ...]:

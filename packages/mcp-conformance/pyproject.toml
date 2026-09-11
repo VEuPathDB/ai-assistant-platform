@@ -1,6 +1,6 @@
 [project]
 name = "veupathdb-mcp-conformance"
-version = "0.1.2"
+version = "0.1.3"
 description = "The conformance suite an MCP tool server passes before a VEuPathDB assistant deployment admits it"
 readme = "README.md"
 requires-python = ">=3.10"

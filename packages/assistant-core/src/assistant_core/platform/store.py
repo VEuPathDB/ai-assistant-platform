@@ -7,7 +7,7 @@ the upsert, the load and the delete from them.
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import Any, Protocol, cast
+from typing import Any, Protocol
 
 from sqlalchemy import delete as sa_delete
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -39,12 +39,9 @@ class WriteThruStore[T: Identifiable]:
     values of one entity, and ``_from_row`` to the entity a row rebuilds.
     """
 
-    _model: Any = None
-    _to_row: Callable[[T], dict[str, object]] = cast(
-        "Callable[[T], dict[str, object]]",
-        cast("object", None),
-    )
-    _from_row: Callable[..., T] = cast("Callable[..., T]", cast("object", None))
+    _model: Any
+    _to_row: Callable[[T], dict[str, object]]
+    _from_row: Callable[..., T]
 
     def __init__(self) -> None:
         self._cache: dict[str, T] = {}

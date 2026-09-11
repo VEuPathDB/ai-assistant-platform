@@ -44,6 +44,11 @@ def install_mcp_meta_namespace(namespace: str) -> None:
     _namespace.use(namespace)
 
 
+def reset_mcp_meta_namespace() -> None:
+    """Read tool hints under the default namespace again."""
+    _namespace.use(DEFAULT_MCP_META_NAMESPACE)
+
+
 def mcp_meta_namespace() -> str:
     """The namespace this deployment reads tool hints under."""
     return _namespace.read()
@@ -240,5 +245,6 @@ __all__ = [
     "log_violation",
     "mcp_meta_namespace",
     "pass_through_scan",
+    "reset_mcp_meta_namespace",
     "stream_part_meta_key",
 ]

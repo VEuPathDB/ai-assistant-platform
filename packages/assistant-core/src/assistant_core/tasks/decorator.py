@@ -27,9 +27,8 @@ from pydantic_ai.tools import RunContext
 
 from assistant_core.graph.stream_events import background_task_started_event
 from assistant_core.graph.turn_state import DurableDeferral
-from assistant_core.tasks.app import task_app
+from assistant_core.tasks.app import durable_task_queue, task_app
 from assistant_core.tasks.declaration import DurableTool, require_declared
-from assistant_core.tasks.names import DURABLE_TASK_QUEUE
 from assistant_core.tasks.payloads import DurableTaskPayload
 from assistant_core.tasks.service import create_background_task
 
@@ -101,7 +100,7 @@ def durable_tool(
             # so this job takes the lock a chat turn takes.
             job = task_app().configure_task(
                 name=tool.job_name,
-                queue=DURABLE_TASK_QUEUE,
+                queue=durable_task_queue(),
                 lock=str(deps.conversation_id),
             )
             dispatched_payload = DurableTaskPayload.from_context(

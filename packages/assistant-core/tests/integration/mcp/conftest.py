@@ -21,7 +21,7 @@ from tests.synthetic import SYNTHETIC_SITE_ID, UsageLedger, synthetic_spec
 
 from assistant_core.conversation.checkpointer import lifespan_checkpointer
 from assistant_core.graph.turn_state import TurnState
-from assistant_core.mcp.admission import AdmittedSources, CredentialMode
+from assistant_core.mcp.admission import NO_CREDENTIAL, AdmittedSources
 from assistant_core.mcp.declaration import ToolSourceDeclaration
 from assistant_core.mcp.untrusted import OutputScan, pass_through_scan
 
@@ -47,7 +47,7 @@ def install_mcp(
 
     async def _install(
         *,
-        credential_mode: CredentialMode = "none",
+        credential_mode: str = NO_CREDENTIAL,
         scan: OutputScan = pass_through_scan,
         declare_offline_source: bool = False,
     ) -> McpRuntime:

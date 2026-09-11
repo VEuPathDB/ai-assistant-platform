@@ -17,7 +17,7 @@ from assistant_core.conversation.event_writer import append_chunk
 from assistant_core.persistence.models import Conversation, ConversationEvent
 from assistant_core.platform.db import async_session_factory
 from assistant_core.tasks.app import install_task_app, reset_task_app
-from assistant_core.tasks.chat_turn import ChatTurnJobArgs
+from assistant_core.tasks.chat_turn import ChatTurnJobArgs, defer_chat_turn
 from assistant_core.tasks.maintenance import release_dead_turn, release_stalled_jobs
 from assistant_core.tasks.names import CHAT_TURN_QUEUE, CHAT_TURN_TASK
 
@@ -54,18 +54,12 @@ async def _open_turn(conversation_id: UUID, turn_id: UUID) -> None:
     )
 
 
-async def _defer_chat_turn(
-    app: procrastinate.App,
-    *,
-    conversation_id: UUID,
-    turn_id: UUID,
-) -> int:
-    """Defer a chat-turn job the way a host's dispatcher defers one."""
-    return await _defer_payload(
-        app,
+async def _defer_turn(*, conversation_id: UUID, turn_id: UUID) -> int:
+    """Defer a chat-turn job through the call a host's dispatcher makes."""
+    return await defer_chat_turn(
         conversation_id=conversation_id,
         payload={
-            "turn_id": str(turn_id),
+            "turnId": str(turn_id),
             "body": {"conversationId": str(conversation_id)},
         },
     )
@@ -126,8 +120,7 @@ async def test_a_dead_worker_s_turn_is_closed_and_its_job_is_failed(
     conversation_id, _user = thread
     turn_id = uuid4()
     await _open_turn(conversation_id, turn_id)
-    job_id = await _defer_chat_turn(
-        queue,
+    job_id = await _defer_turn(
         conversation_id=conversation_id,
         turn_id=turn_id,
     )
@@ -152,8 +145,7 @@ async def test_the_closing_chunks_tell_the_user_to_send_the_message_again(
     conversation_id, _user = thread
     turn_id = uuid4()
     await _open_turn(conversation_id, turn_id)
-    job_id = await _defer_chat_turn(
-        queue,
+    job_id = await _defer_turn(
         conversation_id=conversation_id,
         turn_id=turn_id,
     )
@@ -176,8 +168,7 @@ async def test_a_job_of_another_thread_is_left_alone(
     conversation_id, _user = thread
     turn_id = uuid4()
     await _open_turn(conversation_id, turn_id)
-    job_id = await _defer_chat_turn(
-        queue,
+    job_id = await _defer_turn(
         conversation_id=conversation_id,
         turn_id=turn_id,
     )
@@ -201,8 +192,7 @@ async def test_a_turn_that_already_closed_gets_no_second_terminator(
         turn_id=turn_id,
         chunk={"type": "done"},
     )
-    job_id = await _defer_chat_turn(
-        queue,
+    job_id = await _defer_turn(
         conversation_id=conversation_id,
         turn_id=turn_id,
     )
@@ -221,8 +211,7 @@ async def test_the_sweep_releases_every_job_no_live_worker_holds(
     conversation_id, _user = thread
     turn_id = uuid4()
     await _open_turn(conversation_id, turn_id)
-    job_id = await _defer_chat_turn(
-        queue,
+    job_id = await _defer_turn(
         conversation_id=conversation_id,
         turn_id=turn_id,
     )

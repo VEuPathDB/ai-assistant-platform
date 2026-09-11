@@ -87,6 +87,9 @@ DURABLE_ASSISTANT_ID = "durable"
 DURABLE_SITE_ID = "synthetic"
 DURABLE_MODE = "chat"
 
+# The queue this host names for its durable work, which is not the default.
+HOST_DURABLE_QUEUE = "long_running"
+
 CRUNCH_TOOL = "crunch"
 SIFT_TOOL = "sift"
 
@@ -204,10 +207,14 @@ def durable_tools(
 def task_queue(
     durable_tools: tuple[DurableTool, DurableTool],
 ) -> Iterator[procrastinate.App]:
-    """A procrastinate application that keeps its jobs in memory."""
+    """A procrastinate application that keeps its jobs in memory.
+
+    The queue is named here, as a host names it, so the arc covers the name
+    reaching both the deferral and the worker.
+    """
     del durable_tools
     app = procrastinate.App(connector=InMemoryConnector())
-    install_task_app(app)
+    install_task_app(app, durable_queue=HOST_DURABLE_QUEUE)
     register_durable_jobs(app)
     yield app
     reset_task_app()

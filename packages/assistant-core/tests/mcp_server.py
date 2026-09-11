@@ -12,10 +12,10 @@ from typing import Any
 from fastmcp import FastMCP
 
 from assistant_core.mcp.admission import (
+    NO_CREDENTIAL,
     AdmissionRecord,
     AdmittedSources,
     ApprovalPolicy,
-    CredentialMode,
 )
 from assistant_core.mcp.declaration import ToolSourceDeclaration
 from assistant_core.mcp.untrusted import stream_part_meta_key
@@ -66,7 +66,7 @@ def build_tool_server() -> FastMCP:
 
 def catalog_record(
     *,
-    credential_mode: CredentialMode = "none",
+    credential_mode: str = NO_CREDENTIAL,
     approval_policy: ApprovalPolicy = "annotations",
     endpoint: str = IN_PROCESS_ENDPOINT,
 ) -> AdmissionRecord:

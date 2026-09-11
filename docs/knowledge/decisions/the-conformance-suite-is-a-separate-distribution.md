@@ -24,10 +24,13 @@ there is no copy of the suite to drift.
 
 **A run is configured by URL and credential**, through options the plugin
 registers (`--mcp-endpoint`, `--mcp-bearer`, `--mcp-bearer-second`,
-`--mcp-report`, `--mcp-sample-args`, `--mcp-slow-tool`, `--mcp-isolation-tool`,
-`--mcp-max-call-seconds`). The three credentials also read environment
-variables, because a credential on a command line is a credential in a shell
-history.
+`--mcp-bearer-minimum`, `--mcp-meta-namespace`, `--mcp-report`,
+`--mcp-sample-args`, `--mcp-slow-tool`, `--mcp-isolation-tool`,
+`--mcp-max-call-seconds`). The two credentials, the endpoint, the minimum and
+the namespace also read environment variables, because a credential on a
+command line is a credential in a shell history. The shortest bearer a target
+admits is the operator's policy, not this suite's: the default is 32 and a
+deployment whose registry issues another length states it.
 
 **The report separates `incomplete` from `pass`.** A family whose checks were
 skipped, and a family that did not run at all, both leave the verdict

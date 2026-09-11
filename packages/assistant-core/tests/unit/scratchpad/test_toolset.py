@@ -17,6 +17,8 @@ from assistant_core.scratchpad.toolset import (
     build_scratchpad_toolset,
 )
 
+PROMOTED_KIND = "knowledge"
+
 TOOL_NAMES = [
     "delete_note",
     "list_notes",
@@ -35,7 +37,7 @@ def _calls(*names: str) -> list[ModelMessage]:
 
 
 def test_the_toolset_carries_the_nine_scratchpad_tools() -> None:
-    toolset = build_scratchpad_toolset()
+    toolset = build_scratchpad_toolset(promoted_kind=PROMOTED_KIND)
 
     assert isinstance(toolset, PreparedToolset)
     inner = toolset.wrapped
@@ -76,7 +78,10 @@ def test_a_message_that_calls_nothing_leaves_the_streak_alone() -> None:
 
 
 def _tool_description(guidance: ScratchpadGuidance, name: str) -> str:
-    toolset = build_scratchpad_toolset(guidance=guidance)
+    toolset = build_scratchpad_toolset(
+        guidance=guidance,
+        promoted_kind=PROMOTED_KIND,
+    )
     inner = toolset.wrapped
     assert isinstance(inner, FunctionToolset)
     description = inner.tools[name].tool_def.description
@@ -99,7 +104,7 @@ def test_a_host_that_supplies_no_sentence_gets_the_tool_docstring_alone() -> Non
     plain = _tool_description(ScratchpadGuidance(), "promote_to_memory")
 
     assert plain.startswith(
-        "Promote a scratchpad note to the user's long-term ``knowledge`` memory.",
+        "Promote a scratchpad note to the user's long-term memory.",
     )
     assert "marker set" not in plain
 

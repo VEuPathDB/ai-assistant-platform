@@ -11,6 +11,7 @@ from sqlalchemy import select
 from tests.integration.tasks.conftest import (
     CRUNCH_CALL_ID,
     CRUNCH_SECONDS,
+    HOST_DURABLE_QUEUE,
     ONE_PROMPT,
     SIFT_CALL_ID,
     TWO_PROMPT,
@@ -73,7 +74,7 @@ async def test_a_durable_call_writes_its_row_and_defers_its_job(
 
     jobs = _deferred(task_queue)
     assert [job["task_name"] for job in jobs] == ["durable:crunch"]
-    assert jobs[0]["queue_name"] == "verification"
+    assert jobs[0]["queue_name"] == HOST_DURABLE_QUEUE
     assert jobs[0]["lock"] == str(durable_runtime.conversation_id)
     assert jobs[0]["args"]["task_id"] == str(tasks[0].id)
     assert jobs[0]["args"]["thread_id"] == str(

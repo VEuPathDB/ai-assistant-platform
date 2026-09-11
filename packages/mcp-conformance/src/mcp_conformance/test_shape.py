@@ -10,6 +10,7 @@ from __future__ import annotations
 import re
 
 from mcp_conformance._evidence import ShapeEvidence
+from mcp_conformance._options import ConformanceTarget
 
 # SEP-986, the tool-name rule of the 2025-11-25 revision. A name outside it stops
 # being one name once a client prefixes it with the source it came from.
@@ -81,25 +82,31 @@ def test_every_input_schema_is_an_object_schema(
 
 
 def test_a_stream_part_tool_declares_an_output_schema(
+    mcp_target: ConformanceTarget,
     mcp_shape_evidence: ShapeEvidence,
 ) -> None:
     unrenderable = [
         tool.name
         for tool in mcp_shape_evidence.tools
-        if tool.stream_part is not None and tool.output_schema is None
+        if tool.stream_part(mcp_target.meta_namespace) is not None
+        and tool.output_schema is None
     ]
 
     assert unrenderable == []
 
 
 def test_a_stream_part_declaration_names_a_kind_and_a_version(
+    mcp_target: ConformanceTarget,
     mcp_shape_evidence: ShapeEvidence,
 ) -> None:
-    unnamed = [
-        tool.name
+    declarations = (
+        (tool.name, tool.stream_part(mcp_target.meta_namespace))
         for tool in mcp_shape_evidence.tools
-        if tool.stream_part is not None
-        and not (tool.stream_part.kind and tool.stream_part.version)
+    )
+    unnamed = [
+        name
+        for name, declared in declarations
+        if declared is not None and not (declared.kind and declared.version)
     ]
 
     assert unnamed == []

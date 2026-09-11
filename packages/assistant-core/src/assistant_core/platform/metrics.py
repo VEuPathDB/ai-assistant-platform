@@ -1,87 +1,135 @@
 """The instruments the runtime records, and the readers that fill them.
 
-The instruments are created on the global metrics API, so a process that
-configures no meter provider records to a no-op sink and one that configures a
-provider exports the same series.
+A host installs the meter provider its process exports through. A process that
+installs none records on the global metrics API, which is a no-op sink until
+something configures it.
 """
 
 from __future__ import annotations
 
 import time
 from collections.abc import Callable, Mapping
+from dataclasses import dataclass
 from typing import Any
 
 from opentelemetry import metrics
-from pydantic import BaseModel, ConfigDict, Field
+from opentelemetry.metrics import Counter, Histogram, MeterProvider, UpDownCounter
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-_turn_meter = metrics.get_meter("assistant.turn")
-_sse_meter = metrics.get_meter("assistant.sse")
 
-turn_runs = _turn_meter.create_counter(
-    "assistant.turn.runs",
-    description="Turns that reached a finish chunk, by finish reason",
-    unit="{turn}",
-)
+@dataclass(frozen=True, kw_only=True)
+class Instruments:
+    """Every series the runtime records, on one meter provider."""
 
-turn_duration_s = _turn_meter.create_histogram(
-    "assistant.turn.duration",
-    description="Wall-clock time from a turn's start chunk to its terminator",
-    unit="s",
-)
+    turn_runs: Counter
+    turn_duration_s: Histogram
+    turn_time_to_first_delta_s: Histogram
+    turn_time_to_first_tool_call_s: Histogram
+    turn_tokens: Counter
+    sse_subscriptions: Counter
+    sse_active_subscriptions: UpDownCounter
+    sse_subscription_duration_s: Histogram
+    sse_disconnects: Counter
+    sse_events_sent: Counter
+    sse_keepalives_sent: Counter
 
-turn_time_to_first_delta_s = _turn_meter.create_histogram(
-    "assistant.turn.time_to_first_delta",
-    description="Time from a turn's start chunk to its first text delta",
-    unit="s",
-)
 
-turn_time_to_first_tool_call_s = _turn_meter.create_histogram(
-    "assistant.turn.time_to_first_tool_call",
-    description="Time from a turn's start chunk to its first tool call",
-    unit="s",
-)
+def _build(provider: MeterProvider | None) -> Instruments:
+    turn_meter = metrics.get_meter("assistant.turn", meter_provider=provider)
+    sse_meter = metrics.get_meter("assistant.sse", meter_provider=provider)
+    return Instruments(
+        turn_runs=turn_meter.create_counter(
+            "assistant.turn.runs",
+            description="Turns that reached a finish chunk, by finish reason",
+            unit="{turn}",
+        ),
+        turn_duration_s=turn_meter.create_histogram(
+            "assistant.turn.duration",
+            description="Wall-clock time from a turn's start chunk to its terminator",
+            unit="s",
+        ),
+        turn_time_to_first_delta_s=turn_meter.create_histogram(
+            "assistant.turn.time_to_first_delta",
+            description="Time from a turn's start chunk to its first text delta",
+            unit="s",
+        ),
+        turn_time_to_first_tool_call_s=turn_meter.create_histogram(
+            "assistant.turn.time_to_first_tool_call",
+            description="Time from a turn's start chunk to its first tool call",
+            unit="s",
+        ),
+        turn_tokens=turn_meter.create_counter(
+            "assistant.turn.tokens",
+            description="Tokens a finished turn accounted for",
+            unit="{token}",
+        ),
+        sse_subscriptions=sse_meter.create_counter(
+            "assistant.sse.subscriptions",
+            description="Event-stream subscriptions opened, by whether they resumed",
+            unit="{subscription}",
+        ),
+        sse_active_subscriptions=sse_meter.create_up_down_counter(
+            "assistant.sse.active_subscriptions",
+            description="Event-stream subscriptions open now",
+            unit="{subscription}",
+        ),
+        sse_subscription_duration_s=sse_meter.create_histogram(
+            "assistant.sse.subscription_duration",
+            description="Lifetime of one event-stream subscription",
+            unit="s",
+        ),
+        sse_disconnects=sse_meter.create_counter(
+            "assistant.sse.disconnects",
+            description="Event-stream subscriptions closed, by reason",
+            unit="{disconnect}",
+        ),
+        sse_events_sent=sse_meter.create_counter(
+            "assistant.sse.events_sent",
+            description="Frames served to a subscriber, by chunk kind",
+            unit="{event}",
+        ),
+        sse_keepalives_sent=sse_meter.create_counter(
+            "assistant.sse.keepalives_sent",
+            description="Keepalive comments served to a subscriber",
+            unit="{keepalive}",
+        ),
+    )
 
-turn_tokens = _turn_meter.create_counter(
-    "assistant.turn.tokens",
-    description="Tokens a finished turn accounted for",
-    unit="{token}",
-)
 
-sse_subscriptions = _sse_meter.create_counter(
-    "assistant.sse.subscriptions",
-    description="Event-stream subscriptions opened, by whether they resumed",
-    unit="{subscription}",
-)
+class _InstalledProvider:
+    """The provider in force, and the instruments built on it."""
 
-sse_active_subscriptions = _sse_meter.create_up_down_counter(
-    "assistant.sse.active_subscriptions",
-    description="Event-stream subscriptions open now",
-    unit="{subscription}",
-)
+    def __init__(self) -> None:
+        self._provider: MeterProvider | None = None
+        self._instruments: Instruments | None = None
 
-sse_subscription_duration_s = _sse_meter.create_histogram(
-    "assistant.sse.subscription_duration",
-    description="Lifetime of one event-stream subscription",
-    unit="s",
-)
+    def use(self, provider: MeterProvider | None) -> None:
+        self._provider = provider
+        self._instruments = None
 
-sse_disconnects = _sse_meter.create_counter(
-    "assistant.sse.disconnects",
-    description="Event-stream subscriptions closed, by reason",
-    unit="{disconnect}",
-)
+    def read(self) -> Instruments:
+        if self._instruments is None:
+            self._instruments = _build(self._provider)
+        return self._instruments
 
-sse_events_sent = _sse_meter.create_counter(
-    "assistant.sse.events_sent",
-    description="Frames served to a subscriber, by chunk kind",
-    unit="{event}",
-)
 
-sse_keepalives_sent = _sse_meter.create_counter(
-    "assistant.sse.keepalives_sent",
-    description="Keepalive comments served to a subscriber",
-    unit="{keepalive}",
-)
+_installed = _InstalledProvider()
+
+
+def install_meter_provider(provider: MeterProvider) -> None:
+    """Record every runtime series on this provider, for this process."""
+    _installed.use(provider)
+
+
+def reset_meter_provider() -> None:
+    """Record on the global metrics API again, so a process can install another."""
+    _installed.use(None)
+
+
+def instruments() -> Instruments:
+    """The instruments this process records on."""
+    return _installed.read()
+
 
 _START = "start"
 _FINISH = "finish"
@@ -98,10 +146,11 @@ class _ObservedChunk(BaseModel):
     type: str = ""
     finish_reason: str = Field(default="", alias="finishReason")
 
-
-def chunk_kind(chunk: Mapping[str, Any]) -> str:
-    """The kind this chunk carries, as the wire spells it."""
-    return _ObservedChunk.model_validate(chunk).type
+    @field_validator("finish_reason", mode="before")
+    @classmethod
+    def _an_unset_reason_is_empty(cls, value: str | None) -> str:
+        """A finish chunk carries no reason when the model named none."""
+        return value or ""
 
 
 class TurnTimeline:
@@ -125,16 +174,19 @@ class TurnTimeline:
             return
         if self._started_at is None:
             return
+        recorded = instruments()
         if observed.type == _FINISH:
-            turn_runs.add(1, {"finish_reason": observed.finish_reason})
+            recorded.turn_runs.add(1, {"finish_reason": observed.finish_reason})
         elif observed.type == _DONE:
-            turn_duration_s.record(self._now() - self._started_at)
+            recorded.turn_duration_s.record(self._now() - self._started_at)
         elif observed.type == _TEXT_DELTA and not self._first_delta:
             self._first_delta = True
-            turn_time_to_first_delta_s.record(self._now() - self._started_at)
+            recorded.turn_time_to_first_delta_s.record(self._now() - self._started_at)
         elif observed.type == _TOOL_INPUT_START and not self._first_tool_call:
             self._first_tool_call = True
-            turn_time_to_first_tool_call_s.record(self._now() - self._started_at)
+            recorded.turn_time_to_first_tool_call_s.record(
+                self._now() - self._started_at,
+            )
 
 
 class SseSubscription:
@@ -148,34 +200,34 @@ class SseSubscription:
     ) -> None:
         self._now = now
         self._opened_at = now()
-        sse_subscriptions.add(1, {"resumed": resumed})
-        sse_active_subscriptions.add(1)
+        opened = instruments()
+        opened.sse_subscriptions.add(1, {"resumed": resumed})
+        opened.sse_active_subscriptions.add(1)
 
     def event(self, kind: str) -> None:
-        sse_events_sent.add(1, {"kind": kind})
+        instruments().sse_events_sent.add(1, {"kind": kind})
 
     def keepalive(self) -> None:
-        sse_keepalives_sent.add(1)
+        instruments().sse_keepalives_sent.add(1)
 
     def close(self, *, reason: str) -> None:
-        sse_active_subscriptions.add(-1)
-        sse_subscription_duration_s.record(self._now() - self._opened_at)
-        sse_disconnects.add(1, {"reason": reason})
+        closed = instruments()
+        closed.sse_active_subscriptions.add(-1)
+        closed.sse_subscription_duration_s.record(self._now() - self._opened_at)
+        closed.sse_disconnects.add(1, {"reason": reason})
+
+
+def record_turn_tokens(tokens: int) -> None:
+    """Add what one finished turn accounted for."""
+    instruments().turn_tokens.add(tokens)
 
 
 __all__ = [
+    "Instruments",
     "SseSubscription",
     "TurnTimeline",
-    "chunk_kind",
-    "sse_active_subscriptions",
-    "sse_disconnects",
-    "sse_events_sent",
-    "sse_keepalives_sent",
-    "sse_subscription_duration_s",
-    "sse_subscriptions",
-    "turn_duration_s",
-    "turn_runs",
-    "turn_time_to_first_delta_s",
-    "turn_time_to_first_tool_call_s",
-    "turn_tokens",
+    "install_meter_provider",
+    "instruments",
+    "record_turn_tokens",
+    "reset_meter_provider",
 ]

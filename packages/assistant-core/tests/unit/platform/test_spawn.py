@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 
-from assistant_core.platform import spawn as spawn_module
+import assistant_core.platform.spawn
 from assistant_core.platform.spawn import spawn
 
 
@@ -20,12 +20,12 @@ async def test_a_spawned_task_is_retained_until_it_finishes() -> None:
     await started.wait()
 
     assert task is not None
-    assert task in spawn_module._background_tasks
+    assert task in assistant_core.platform.spawn._background_tasks
 
     release.set()
     await task
 
-    assert task not in spawn_module._background_tasks
+    assert task not in assistant_core.platform.spawn._background_tasks
 
 
 def test_a_coroutine_spawned_outside_a_loop_is_closed() -> None:

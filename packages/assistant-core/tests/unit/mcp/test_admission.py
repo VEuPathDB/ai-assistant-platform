@@ -86,7 +86,6 @@ def test_content_trust_cannot_be_anything_but_untrusted() -> None:
 @pytest.mark.parametrize(
     ("field", "value"),
     [
-        ("credential_mode", "pathfinder_service"),
         ("approval_policy", "never"),
         ("max_call_seconds", 0),
         ("endpoint", ""),
@@ -158,3 +157,26 @@ def test_the_admitted_set_is_never_read_from_the_environment(
         set(AdmissionRecord.model_fields) | set(AdmittedSources.model_fields),
     )
     assert get_admitted_sources().records == ()
+
+
+def test_a_deployment_names_its_own_credential_mode() -> None:
+    """The vocabulary is the deployment's; the runtime interprets one word."""
+    record = AdmissionRecord(
+        source_id="institutional",
+        endpoint="https://tools.example/mcp",
+        part_namespace="tools",
+        credential_mode="institutional_login",
+    )
+
+    assert record.credential_mode == "institutional_login"
+
+
+@pytest.mark.parametrize("mode", ["", "Service", "service login", "user-login"])
+def test_a_credential_mode_that_is_not_a_name_is_refused(mode: str) -> None:
+    with pytest.raises(ValidationError, match="snake_case"):
+        AdmissionRecord(
+            source_id="institutional",
+            endpoint="https://tools.example/mcp",
+            part_namespace="tools",
+            credential_mode=mode,
+        )

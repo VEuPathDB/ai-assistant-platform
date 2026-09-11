@@ -8,6 +8,7 @@ from assistant_core.platform.context import (
     application_id_ctx,
     calling_application,
 )
+from assistant_core.tasks.names import DEFAULT_DURABLE_TASK_QUEUE
 
 
 def test_the_default_application_is_not_a_product_name() -> None:
@@ -35,3 +36,7 @@ def test_the_stored_column_defaults_are_the_neutral_ids() -> None:
 
     assert columns["application_id"].server_default.arg == "default"
     assert columns["assistant_id"].server_default.arg == "default"
+
+
+def test_the_default_durable_queue_is_not_a_product_phase() -> None:
+    assert DEFAULT_DURABLE_TASK_QUEUE == "durable"

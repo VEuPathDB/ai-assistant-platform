@@ -14,11 +14,14 @@ status: stable
 tables, the repository, the notebook that opens a session per call, the nine
 tools, the toolset that filters them, and the index the agent reads.
 
-`build_scratchpad_toolset(guidance=...)` returns an
+`build_scratchpad_toolset(promoted_kind=..., guidance=...)` returns an
 `AbstractToolset[AssistantDeps]`. A host passes it in the `toolsets` list of
 any agent it wants to take notes; there is no registration step and the runtime
 names no agent. The deps type is contravariant in pydantic-ai, so an agent
 whose deps subclass `AssistantDeps` accepts the toolset unchanged.
+`promoted_kind` is the memory kind a promoted note is written under, and it is
+required, because the kinds are the host's
+([a set only a host can enumerate is a validated string](a-closed-set-the-host-owns-is-a-validated-string.md)).
 
 `render_scratchpad(notes, total_count=..., guidance=...)` renders the header,
 the pinned section and the recent section, and appends the host's text.

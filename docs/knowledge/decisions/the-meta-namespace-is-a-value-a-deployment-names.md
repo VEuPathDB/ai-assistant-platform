@@ -1,7 +1,7 @@
 ---
 type: Decision
 title: The tool-hint namespace is a value, and its default names this organisation
-description: A tool server declares a typed part under <namespace>/streamPart. The namespace is org.veupathdb.assistant by default and a host installs its own. Hard-coding the key in two distributions was rejected, and so was parsing it from the environment.
+description: A tool server declares a typed part under <namespace>/streamPart. The namespace is org.veupathdb.assistant by default, a host installs its own and a conformance run names its own. Hard-coding the key in two distributions was rejected, and so was parsing it from the environment in the runtime.
 tags: [assistant-core, mcp-conformance, mcp, naming]
 generated: { by: claude-code/opus-5, at: 2026-09-11T00:00:00Z }
 status: stable
@@ -17,17 +17,19 @@ reads a declaration under. A deployment that names its own namespace reads
 `<namespace>/streamPart` and nothing else, so a server annotated for that
 deployment gets its typed part.
 
-The conformance suite carries the same namespace as its own constant,
-`mcp_conformance._evidence.MCP_META_NAMESPACE`, and builds
-`STREAM_PART_META_KEY` and `MAX_CALL_SECONDS_META_KEY` from it. The two
-distributions may not depend on each other, so the namespace is written twice
-and the copies name one default.
+The conformance suite takes the namespace from the runner, as
+`--mcp-meta-namespace` with the `MCP_CONFORMANCE_META_NAMESPACE` fallback the
+other options have. `mcp_conformance._options.DEFAULT_META_NAMESPACE` is the
+same default, and `stream_part_meta_key(namespace)` and
+`max_call_seconds_meta_key(namespace)` build the two keys from the namespace
+the run states. The two distributions may not depend on each other, so the
+default is written twice and the copies name one namespace.
 
-The consequence is written down rather than removed: a suite run reads the
-suite's namespace, so a server that declares its hints under another one is
+A run reads the hints under the namespace it was told, so a server annotated
+for its own deployment is reported on what it declared. A run that names
+nothing reads the default, and a server annotated under some third namespace is
 read as a server that declares none, which is a shape the suite already
-allows. What such a deployment learns from a run is that its servers declare no
-typed part and no budget, not that they declared one wrongly.
+allows.
 
 # Why
 
@@ -55,8 +57,8 @@ definitions, with no way out but a fork.
 is installed, and one of the two being configuration would split how a
 deployment describes its tool servers.
 
-**A second override on the conformance suite.** Rejected while nothing reads
-it: the suite's checks on a declaration are checks on a server that made one,
-and a server that declares under another namespace is already answered as one
-that declared nothing. An option would have to change what the suite reports,
-not only which key it reads.
+**Leaving the suite on its own constant.** Rejected: a deployment that runs
+its own runtime annotates its servers under its own namespace, and a suite that
+reads only the default reports those servers as declaring no typed part and no
+budget. The run is the place that knows which namespace the servers under test
+were annotated for, so the runner states it.

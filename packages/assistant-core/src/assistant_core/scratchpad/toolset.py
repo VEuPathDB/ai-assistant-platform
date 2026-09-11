@@ -4,7 +4,12 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
-from pydantic_ai.messages import ModelMessage, ModelResponse, ToolCallPart
+from pydantic_ai.messages import (
+    ModelMessage,
+    ModelResponse,
+    ToolCallPart,
+    ToolReturn,
+)
 from pydantic_ai.tools import RunContext, Tool, ToolDefinition
 from pydantic_ai.toolsets.abstract import AbstractToolset
 from pydantic_ai.toolsets.function import FunctionToolset
@@ -14,11 +19,12 @@ from assistant_core.graph.runtime import AssistantDeps
 from assistant_core.scratchpad.notebook import ScratchpadNotebook
 from assistant_core.scratchpad.rendering import ScratchpadGuidance
 from assistant_core.scratchpad.tools import (
+    ScratchpadUnavailable,
     delete_note,
     list_notes,
     note,
     pin_note,
-    promote_to_memory,
+    promote_note,
     read_note,
     search_notes,
     unpin_note,
@@ -86,8 +92,23 @@ async def _prepare_scratchpad_tools(
     return [td for td in tool_defs if td.name not in hidden]
 
 
-def _promote_tool(sentence: str) -> Tool[AssistantDeps]:
-    """The promote tool, carrying what the host counts as worth promoting."""
+def _promote_tool(sentence: str, kind: str) -> Tool[AssistantDeps]:
+    """The promote tool, under the kind and the sentence the host named."""
+
+    async def promote_to_memory(
+        ctx: RunContext[AssistantDeps],
+        note_id: str,
+    ) -> ToolReturn[str | ScratchpadUnavailable]:
+        """Promote a scratchpad note to the user's long-term memory.
+
+        Use when a note holds something worth remembering after this
+        conversation ends. The note's ``title`` / ``summary`` / ``body`` map
+        one to one onto the memory's ``name`` / ``summary`` /
+        ``content.body``. The note stays where it is; a new cross-thread
+        memory is created.
+        """
+        return await promote_note(ctx, note_id, kind=kind)
+
     tool = Tool[AssistantDeps](promote_to_memory)
     if sentence:
         tool.description = f"{tool.description}\n\n{sentence}"
@@ -96,6 +117,7 @@ def _promote_tool(sentence: str) -> Tool[AssistantDeps]:
 
 def build_scratchpad_toolset(
     *,
+    promoted_kind: str,
     guidance: ScratchpadGuidance = _NO_GUIDANCE,
 ) -> AbstractToolset[AssistantDeps]:
     """The nine scratchpad tools, filtered for what the thread holds now."""
@@ -112,5 +134,5 @@ def build_scratchpad_toolset(
             read_note,
         ],
     )
-    base.add_tool(_promote_tool(guidance.promote))
+    base.add_tool(_promote_tool(guidance.promote, promoted_kind))
     return PreparedToolset(wrapped=base, prepare_func=_prepare_scratchpad_tools)

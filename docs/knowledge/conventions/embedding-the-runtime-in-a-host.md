@@ -39,15 +39,19 @@ this order.
    reads the thread's row and answers the spec the turn runs under. A thread
    that does not exist yet takes the requested assistant or the registry's
    default.
-2. **Run the identity gate.** `spec.identity_gate` when the spec declares one.
-   It runs before the job is deferred, so a turn a caller may not open never
-   reaches the worker.
-3. **Open the thread.** The host creates or reads the row with
+2. **Run the identity gate.** The spec's `identity_gate`, when it declares
+   one. It runs before the job is deferred, so a turn a caller may not open
+   never reaches the worker.
+3. **Open the thread, and refuse one the caller does not own.** The host
+   creates or reads the row with
    `persistence.repositories.conversation.ConversationRepository`, stamping
-   `assistant_id` with the spec's id. The row is the authority: a concurrent
-   first turn can create the thread under another assistant between the
-   resolve and the insert, so a host that finds another id there refuses the
-   turn the way `AssistantMismatchError` is refused.
+   `assistant_id` with the spec's id. A row that already exists is read
+   through `conversation.authz.get_owned_conversation(repo, conversation_id,
+   user_id)`, so a thread held by another account or another application is
+   refused before this turn writes anything to it. The row is the authority:
+   a concurrent first turn can create the thread under another assistant
+   between the resolve and the insert, so a host that finds another id there
+   refuses the turn the way `AssistantMismatchError` is refused.
 4. **Stop the turn in flight.** `conversation.cancellation.cancel_in_flight_turn`.
 5. **Screen the user's text**, when the deployment screens it:
    `capabilities.input_screening.UserInputScanner`, whose refusal is
@@ -87,7 +91,7 @@ declaration resolves when a job runs and not when the module is imported.
 
 | Install | What it gives the runtime |
 | --- | --- |
-| `tasks.app.install_task_app(app)` | The procrastinate application every deferral opens. Also needed in the process that serves `POST /chat`. |
+| `tasks.app.install_task_app(app, durable_queue=...)` | The procrastinate application every deferral opens, and the name of the queue this deployment runs its durable work on. Also needed in the process that serves `POST /chat`. |
 | `registry.install_assistant_registry(registry)` | The assistants, to work that carries no request. |
 | `tasks.runner.install_worker_context(build)` | The turn context a durable body reads. |
 | `tasks.runner.register_durable_jobs(app)` | One procrastinate job per declared durable tool. |
@@ -95,16 +99,18 @@ declaration resolves when a job runs and not when the module is imported.
 | `tasks.job_context.install_durable_job_context(ctx)` | State a worker cannot re-derive, such as a carried credential. |
 | `mcp.admission.install_admitted_sources(admitted)` | The tool servers this deployment admits. |
 
-A worker consumes the queues `tasks.names.WORKER_QUEUES` lists, and writes its
+A worker consumes the queues `tasks.app.worker_queues()` lists, which are the
+runtime's own three and the durable queue this process named, and writes its
 beat with `tasks.heartbeat.HeartbeatThread`, which is what the stalled-job
 sweep reads. A missing install is not reported at start: it raises when the
 first job needs it, as `TaskAppNotInstalledError`,
 `RegistryNotInstalledError`, `WorkerContextNotInstalledError` or
 `CompletionTurnNotInstalledError`.
 
-The turn's own driver is the host's: it reads `spec.turn_prologue` before the
-graph, `spec.turn_cancel` on a turn the user stopped, and `spec.turn_epilogue`
-after the graph, and it writes every chunk through a `ChatWriter`.
+The turn's own driver is the host's: it reads the spec's `turn_prologue`
+before the graph, its `turn_cancel` on a turn the user stopped, and its
+`turn_epilogue` after the graph, and it writes every chunk through a
+`ChatWriter`.
 
 # The refusals
 
@@ -113,7 +119,7 @@ No error here names an HTTP status. A host maps them.
 | Error | What it means |
 | --- | --- |
 | `errors.ConversationNotFoundError` | No such thread, or one the caller may not see |
-| `errors.ConversationForbiddenError` | The thread belongs to another user or another application |
+| `errors.ConversationForbiddenError` | The thread belongs to another user or another application, which is what step 3 of the write refuses |
 | `errors.TurnStillRunningError` | The worker did not close the turn inside the stop window |
 | `registry.UnknownAssistantError` | The request names an assistant this deployment does not serve |
 | `registry.AssistantMismatchError` | The request names an assistant other than the thread's |

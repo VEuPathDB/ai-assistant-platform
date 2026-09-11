@@ -93,7 +93,7 @@ def _read_only(tools: list[ToolRecord]) -> list[ToolRecord]:
 
 def budget_for(target: ConformanceTarget, tool: ToolRecord) -> float:
     """The budget a call is held to: the tool's own, or the source's default."""
-    declared = tool.declared_max_call_seconds
+    declared = tool.declared_max_call_seconds(target.meta_namespace)
     return target.max_call_seconds if declared is None else declared
 
 

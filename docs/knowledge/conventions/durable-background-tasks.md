@@ -56,9 +56,9 @@ lane.
 
 # What a host wires
 
-- `install_task_app(app)` - the procrastinate application and its schema.
-- `register_durable_jobs(app)` - one job per declared tool, on
-  `DURABLE_TASK_QUEUE`.
+- `install_task_app(app, durable_queue=...)` - the procrastinate application,
+  its schema and the queue durable jobs run on. The default is `durable`.
+- `register_durable_jobs(app)` - one job per declared tool, on that queue.
 - `register_durable_impl(tool, impl)` - the worker-side body, in the worker.
 - `install_worker_context(build)` - the turn context a body reads.
 - `install_completion_turn(run)` - the driver for the turn a finished task opens.
@@ -72,7 +72,8 @@ lane.
 Each of those has a `reset_*` in the same module for a process that
 re-composes.
 
-A worker consumes `WORKER_QUEUES`. The periodic sweep is
+A worker consumes `worker_queues()`, which carries the queue the host named.
+The periodic sweep is
 `release_stalled_jobs`, registered by the host under
 `RELEASE_STALLED_JOBS_TASK`; it fails every job no live worker holds and closes
 the stream a killed turn left open.

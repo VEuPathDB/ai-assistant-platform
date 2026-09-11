@@ -306,6 +306,21 @@ async def test_a_source_that_carries_no_credential_never_asks_for_one() -> None:
     assert credentials.asked_for == []
 
 
+async def test_a_mode_the_runtime_does_not_interpret_asks_for_the_credential() -> None:
+    """Every mode but ``none`` reaches the host's callback, whatever it is named."""
+    credentials = _RecordingCredentials()
+
+    async with _sources(
+        (catalog_declaration(),),
+        catalog_admitted(credential_mode="institutional_login"),
+        credential=credentials,
+        build_toolset=lambda record, credential: FunctionToolset[Any](),
+    ):
+        pass
+
+    assert credentials.asked_for == [SOURCE_ID]
+
+
 async def test_a_source_that_acts_as_the_user_asks_for_the_credential() -> None:
     credentials = _RecordingCredentials()
     handed: list[str | None] = []

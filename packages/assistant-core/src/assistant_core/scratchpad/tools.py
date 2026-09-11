@@ -316,19 +316,15 @@ async def read_note(
     return with_summary(_note_payload(note_row), f"Read {note_row.title}", ctx=ctx)
 
 
-async def promote_to_memory(
+async def promote_note(
     ctx: RunContext[AssistantDeps],
     note_id: str,
+    *,
+    kind: str,
 ) -> ToolReturn[str | ScratchpadUnavailable]:
-    """Promote a scratchpad note to the user's long-term ``knowledge`` memory.
+    """Write one note to long-term memory under the kind the host named.
 
-    Use when a note holds something worth remembering after this
-    conversation ends. The note's ``title`` / ``summary`` / ``body`` map one
-    to one onto the memory's ``name`` / ``summary`` / ``content.body``. The
-    note stays where it is; a new cross-thread memory is created.
-
-    The other memory kinds carry per-kind content schemas and are written by
-    the pipeline at the end of a successful turn, not through this tool.
+    The note stays where it is; a new cross-thread memory is created.
     """
     notebook = _notebook(ctx)
     if notebook is None:
@@ -343,7 +339,7 @@ async def promote_to_memory(
         raise ModelRetry(_not_found_msg(note_id))
 
     value = MemoryValue(
-        kind="knowledge",
+        kind=kind,
         name=note_row.title,
         summary=note_row.summary,
         tags=list(note_row.tags),
