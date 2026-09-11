@@ -5,9 +5,10 @@ All domain/service types that need camelCase JSON output inherit from
 serialization.
 """
 
-from typing import Annotated
+from collections.abc import Callable
+from typing import Annotated, Protocol
 
-from pydantic import BaseModel, ConfigDict, PlainSerializer
+from pydantic import BaseModel, ConfigDict, PlainSerializer, computed_field
 from pydantic.alias_generators import to_camel
 
 
@@ -20,6 +21,21 @@ class CamelModel(BaseModel):
     """
 
     model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+
+class Computed[T](Protocol):
+    """A class attribute a type checker reads as the value it computes."""
+
+    def __get__(self, instance: object, owner: type | None = None, /) -> T: ...
+
+
+def computed[S, T](func: Callable[[S], T]) -> Computed[T]:
+    """A computed field, serialized like a field and typed as its value.
+
+    A ``@computed_field`` stacked on ``@property`` is a decorated property, which
+    mypy refuses; this wraps the property itself, so both checkers read ``T``.
+    """
+    return computed_field(property(func))
 
 
 RoundedFloat = Annotated[

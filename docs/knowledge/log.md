@@ -1,5 +1,14 @@
 # Log
 
+## 2026-09-11
+
+`assistant_core.platform.pydantic_base` publishes `computed`, a computed field
+a type checker reads as the value it computes. A `@computed_field` stacked on
+`@property` is a decorated property, which mypy refuses and which reads as a
+bound method without the `@property`; `computed` wraps the property itself, so
+the attribute is typed as its value under both checkers and serializes like a
+field. `assistant-core` is 0.3.0a6.
+
 ## 2026-09-10
 
 Three backlog items are closed and the backlog is empty. A tool source an
