@@ -29,7 +29,7 @@ from pydantic_ai.messages import (
 )
 from pydantic_ai.models import Model
 from pydantic_ai.models.function import AgentInfo, DeltaToolCall, FunctionModel
-from pydantic_ai.ui.vercel_ai.response_types import DoneChunk
+from pydantic_ai.ui.vercel_ai.response_types import DoneChunk, FinishChunk
 from tests.conftest import seed_host_user
 from tests.synthetic import UsageLedger, dump_chunk
 
@@ -449,11 +449,8 @@ class DurableRuntime:
                 durable_results=turn.durable_results,
             ),
         )
-        await turn.writer.write(dump_chunk_done())
-
-
-def dump_chunk_done() -> dict[str, Any]:
-    return dump_chunk(DoneChunk())
+        for chunk in (FinishChunk(finish_reason="stop"), DoneChunk()):
+            await turn.writer.write(dump_chunk(chunk))
 
 
 @pytest.fixture(scope="session")

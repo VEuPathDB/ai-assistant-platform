@@ -1,8 +1,9 @@
-"""Release the lock and close the stream a killed worker leaves behind."""
+"""Release the lock and settle the work a killed worker leaves behind."""
 
 from __future__ import annotations
 
 import warnings
+from dataclasses import dataclass
 from uuid import UUID
 
 from procrastinate.jobs import Job, Status
@@ -23,18 +24,45 @@ from assistant_core.platform.db import async_session_factory
 from assistant_core.platform.logging import get_logger
 from assistant_core.tasks.app import task_app
 from assistant_core.tasks.chat_turn import ChatTurnJobArgs
-from assistant_core.tasks.names import CHAT_TURN_TASK
+from assistant_core.tasks.names import CHAT_TURN_TASK, is_durable_job_name
+from assistant_core.tasks.payloads import DurableTaskPayload
+from assistant_core.tasks.runner import settle_unfinished_task
 
 logger = get_logger(__name__)
 
-_STALLED_TURN_ERROR = (
-    "The worker running this turn stopped before it finished. "
-    "Send the message again to retry."
+
+@dataclass(frozen=True, kw_only=True)
+class _StalledReason:
+    """Why a job was released, worded for the work the job was doing."""
+
+    turn: str
+    task: str
+
+    def text_for(self, task_name: str) -> str:
+        """The wording the job of this name reports."""
+        return self.task if is_durable_job_name(task_name) else self.turn
+
+
+_LONG_RUNNING = _StalledReason(
+    turn=(
+        "The worker running this turn stopped before it finished. "
+        "Send the message again to retry."
+    ),
+    task=(
+        "The worker running this task stopped before it finished. "
+        "Ask for it again to retry."
+    ),
 )
 
-_DEAD_WORKER_ERROR = (
-    "The worker running this turn stopped, which an out-of-memory kill can "
-    "cause. Send the message again to retry."
+_DEAD_WORKER = _StalledReason(
+    turn=(
+        "The worker running this turn stopped, which an out-of-memory kill can "
+        "cause. Send the message again to retry."
+    ),
+    task=(
+        "The worker running this task stopped, which an out-of-memory kill can "
+        "cause. Ask for it again to retry."
+    ),
 )
 
 
@@ -66,14 +94,14 @@ async def release_stalled_jobs() -> None:
     lock one to two minutes later. The started-age timeout stays as the
     backstop for a job that runs too long on a worker that still answers.
     """
-    reasons: dict[int | None, tuple[Job, str]] = {
-        job.id: (job, _STALLED_TURN_ERROR) for job in await _long_running_jobs()
+    reasons: dict[int | None, tuple[Job, _StalledReason]] = {
+        job.id: (job, _LONG_RUNNING) for job in await _long_running_jobs()
     }
     reasons.update(
-        {job.id: (job, _DEAD_WORKER_ERROR) for job in await _dead_workers_jobs()},
+        {job.id: (job, _DEAD_WORKER) for job in await _dead_workers_jobs()},
     )
-    for job, error_text in reasons.values():
-        await release_job(job, error_text)
+    for job, reason in reasons.values():
+        await _release_job(job, reason)
 
 
 async def release_dead_turn(conversation_id: UUID) -> None:
@@ -85,14 +113,15 @@ async def release_dead_turn(conversation_id: UUID) -> None:
     """
     for job in await _dead_workers_jobs():
         if job.task_name == CHAT_TURN_TASK and job.lock == str(conversation_id):
-            await release_job(job, _DEAD_WORKER_ERROR)
+            await _release_job(job, _DEAD_WORKER)
 
 
-async def release_job(job: Job, error_text: str) -> None:
-    """End the job's stream, then fail the job so its lock releases."""
-    # The terminator is written first: the thread lock is still held, so no
+async def _release_job(job: Job, reason: _StalledReason) -> None:
+    """Settle the job's work, then fail the job so its lock releases."""
+    error_text = reason.text_for(job.task_name)
+    # The work is settled first: the thread lock is still held, so no
     # successor turn can interleave its chunks with it.
-    await _close_stalled_turn(job, error_text)
+    await _settle_released_work(job, error_text)
     await task_app().job_manager.finish_job(
         job,
         status=Status.FAILED,
@@ -108,10 +137,32 @@ async def release_job(job: Job, error_text: str) -> None:
     )
 
 
+async def _settle_released_work(job: Job, error_text: str) -> None:
+    """Report whatever the released job was in the middle of."""
+    if job.task_name == CHAT_TURN_TASK:
+        await _close_stalled_turn(job, error_text)
+    elif is_durable_job_name(job.task_name):
+        await _settle_stalled_task(job, error_text)
+
+
+async def _settle_stalled_task(job: Job, error_text: str) -> None:
+    """Report the durable task a killed worker left in flight."""
+    try:
+        payload = DurableTaskPayload.model_validate(job.task_kwargs)
+    except ValidationError:
+        logger.warning(
+            "Stalled durable task carries no readable payload", job_id=job.id
+        )
+        return
+    await settle_unfinished_task(
+        task_id=payload.task_id,
+        conversation_id=payload.thread_id,
+        error=error_text,
+    )
+
+
 async def _close_stalled_turn(job: Job, error_text: str) -> None:
     """End the stream a killed turn left open, so subscribers stop waiting."""
-    if job.task_name != CHAT_TURN_TASK:
-        return
     try:
         args = ChatTurnJobArgs.model_validate(job.task_kwargs)
     except ValidationError:
@@ -162,4 +213,4 @@ async def _chat_stream_is_open(conversation_id: UUID) -> bool:
     return newest is not None and newest != "done"
 
 
-__all__ = ["release_dead_turn", "release_job", "release_stalled_jobs"]
+__all__ = ["release_dead_turn", "release_stalled_jobs"]

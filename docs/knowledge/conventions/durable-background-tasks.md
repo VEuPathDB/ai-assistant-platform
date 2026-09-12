@@ -75,8 +75,21 @@ re-composes.
 A worker consumes `worker_queues()`, which carries the queue the host named.
 The periodic sweep is
 `release_stalled_jobs`, registered by the host under
-`RELEASE_STALLED_JOBS_TASK`; it fails every job no live worker holds and closes
-the stream a killed turn left open.
+`RELEASE_STALLED_JOBS_TASK`; it fails every job no live worker holds and
+settles what that job was doing.
+
+# What the sweep settles
+
+A released `chat_turn:run` job gets its stream closed: `error`,
+`data-turn-failed`, `finish` and `done`.
+
+A released `durable:<tool>` job is settled in the worker's place, through the
+path the worker itself uses. `settle_unfinished_task` reads the row: a task
+that already recorded an outcome is answered with it, and a task that recorded
+none is failed with the reason and announced as `data-task-completed`. Either
+way the completion turn opens, so the parked call is answered, the row leaves
+the active statuses and the thread's stream reaches `done`. A row that is
+already `complete` or `failed` is left alone.
 
 # The beat and the window
 

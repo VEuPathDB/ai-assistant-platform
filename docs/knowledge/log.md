@@ -2,6 +2,18 @@
 
 ## 2026-09-12
 
+The stalled-job sweep settles a durable task, not only a chat turn.
+`release_stalled_jobs` releases every job no live worker holds, and it now
+reports the released `durable:<tool>` job through the door the worker's own
+failure path uses: `settle_unfinished_task` answers a task that already
+recorded an outcome with it, fails a task that recorded none with the reason
+the released job carries, and opens the completion turn either way. The
+released job's reason is worded for the work it was doing, so a durable task
+reads "The worker running this task stopped". Before this, a killed worker left
+its `background_tasks` row in an active status for good, so `has_active_task`
+answered true for ever, the thread reopened as work in progress and the tasks
+rail spun with nothing coming. `assistant-core` is 0.3.0a9.
+
 A snapshot says whether a turn is running. `AssistantClient.snapshot` answers
 `turnInFlight` beside `messages` and `cursor`, true when the last chunk of the
 snapshot is a prompt envelope, which is the shape a snapshot takes while a turn

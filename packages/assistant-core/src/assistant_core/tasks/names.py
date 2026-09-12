@@ -20,6 +20,11 @@ def durable_job_name(tool_name: str) -> str:
     return f"{_DURABLE_JOB_PREFIX}{tool_name}"
 
 
+def is_durable_job_name(task_name: str) -> bool:
+    """Whether a procrastinate job name is the job of one durable tool."""
+    return task_name.startswith(_DURABLE_JOB_PREFIX)
+
+
 __all__ = [
     "CHAT_TURN_QUEUE",
     "CHAT_TURN_TASK",
@@ -28,4 +33,5 @@ __all__ = [
     "MAINTENANCE_QUEUE",
     "RELEASE_STALLED_JOBS_TASK",
     "durable_job_name",
+    "is_durable_job_name",
 ]

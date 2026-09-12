@@ -2,7 +2,8 @@
 
 Looks up the registered body, builds the turn context the host supplies,
 runs the body, persists the result on the ``background_tasks`` row and opens
-the turn that answers the parked call.
+the turn that answers the parked call. The sweep settles a task here too,
+when the worker that held it stopped.
 """
 
 from __future__ import annotations
@@ -25,6 +26,7 @@ from assistant_core.memory.lifespan import lifespan_memory_store
 from assistant_core.memory.store import MemoryStore
 from assistant_core.models.capture import capture_llm
 from assistant_core.persistence.repositories.background_tasks import (
+    ACTIVE_TASK_STATES,
     BackgroundTaskRepository,
 )
 from assistant_core.platform.config import get_runtime_settings
@@ -32,7 +34,10 @@ from assistant_core.platform.db import async_session_factory
 from assistant_core.platform.logging import get_logger
 from assistant_core.platform.types import JSONObject
 from assistant_core.tasks.app import durable_task_queue
-from assistant_core.tasks.completion_turn import safe_completion_turn
+from assistant_core.tasks.completion_turn import (
+    as_durable_result,
+    safe_completion_turn,
+)
 from assistant_core.tasks.declaration import (
     DurableTool,
     declared_durable_tools,
@@ -185,13 +190,11 @@ async def _run_durable_task_inner(
     if impl is None:
         error = f"unknown durable tool: {tool_name}"
         logger.error("durable runner missing impl", tool_name=tool_name)
-        await repo.mark_failed(task_id=task_uuid, error=error)
-        await _announce_completion(chat_uuid, task_uuid, "failed", error)
-        await _answer_and_settle(
+        await _fail_task(
             repo,
-            thread_id=thread_id,
-            result=DurableTaskResult(task_id=task_uuid, status="failed", error=error),
-            fallback=(),
+            task_id=task_uuid,
+            conversation_id=chat_uuid,
+            error=error,
         )
         return
 
@@ -231,14 +234,11 @@ async def _run_durable_task_inner(
                     await progress.aclose()
     except Exception as exc:  # the worker records every failure
         logger.exception("durable tool failed", tool_name=tool_name)
-        error = str(exc) or exc.__class__.__name__
-        await repo.mark_failed(task_id=task_uuid, error=error)
-        await _announce_completion(chat_uuid, task_uuid, "failed", error)
-        await _answer_and_settle(
+        await _fail_task(
             repo,
-            thread_id=thread_id,
-            result=DurableTaskResult(task_id=task_uuid, status="failed", error=error),
-            fallback=(),
+            task_id=task_uuid,
+            conversation_id=chat_uuid,
+            error=str(exc) or exc.__class__.__name__,
         )
         return
 
@@ -250,6 +250,56 @@ async def _run_durable_task_inner(
         thread_id=thread_id,
         result=DurableTaskResult(task_id=task_uuid, status="success", result=result),
         fallback=(task_uuid,),
+    )
+
+
+async def settle_unfinished_task(
+    *,
+    task_id: UUID,
+    conversation_id: UUID,
+    error: str,
+) -> None:
+    """Settle a durable task in the place of the worker that stopped.
+
+    A task that already recorded an outcome is answered with it. A task that
+    recorded none fails with the reason, so the parked turn answers either way.
+    """
+    repo = BackgroundTaskRepository(session_factory=async_session_factory)
+    row = await repo.get(task_id=task_id)
+    if row is None or row.status not in ACTIVE_TASK_STATES:
+        return
+    reported = await repo.reported_outcomes(task_ids=(task_id,))
+    if task_id not in reported:
+        await _fail_task(
+            repo,
+            task_id=task_id,
+            conversation_id=conversation_id,
+            error=error,
+        )
+        return
+    await _answer_and_settle(
+        repo,
+        thread_id=str(conversation_id),
+        result=as_durable_result(reported[task_id]),
+        fallback=(task_id,),
+    )
+
+
+async def _fail_task(
+    repo: BackgroundTaskRepository,
+    *,
+    task_id: UUID,
+    conversation_id: UUID,
+    error: str,
+) -> None:
+    """Fail one task's row, tell the thread, and answer the call it parked."""
+    await repo.mark_failed(task_id=task_id, error=error)
+    await _announce_completion(conversation_id, task_id, "failed", error)
+    await _answer_and_settle(
+        repo,
+        thread_id=str(conversation_id),
+        result=DurableTaskResult(task_id=task_id, status="failed", error=error),
+        fallback=(),
     )
 
 
@@ -320,4 +370,5 @@ __all__ = [
     "register_durable_jobs",
     "reset_worker_context",
     "run_durable_task",
+    "settle_unfinished_task",
 ]

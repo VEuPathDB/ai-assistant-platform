@@ -160,7 +160,7 @@ def _parked_durable_call(snapshot: Any) -> PendingDurableCall | None:
     return PendingDurableCall.model_validate(parked)
 
 
-def _as_result(outcome: TaskOutcome) -> DurableTaskResult:
+def as_durable_result(outcome: TaskOutcome) -> DurableTaskResult:
     """One task row's outcome, as the answer a parked call resumes with."""
     if outcome.failed:
         return DurableTaskResult(
@@ -187,7 +187,7 @@ async def _gathered_answers(
     only once the last task reports.
     """
     reported = await repo.reported_outcomes(task_ids=parked.task_ids)
-    answers = {task_id: _as_result(found) for task_id, found in reported.items()}
+    answers = {task_id: as_durable_result(found) for task_id, found in reported.items()}
     answers[result.task_id] = result
     if any(task_id not in answers for task_id in parked.task_ids):
         return None
@@ -298,6 +298,7 @@ __all__ = [
     "CompletionTurn",
     "CompletionTurnNotInstalledError",
     "OpenCompletionTurn",
+    "as_durable_result",
     "install_completion_turn",
     "installed_completion_turn",
     "reset_completion_turn",

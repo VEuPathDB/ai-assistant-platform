@@ -12,9 +12,17 @@ from procrastinate.testing import InMemoryConnector
 from sqlalchemy import select
 from structlog.testing import capture_logs
 from tests.conftest import seed_host_user
+from tests.integration.tasks.conftest import ONE_PROMPT, DurableRuntime
 
 from assistant_core.conversation.event_writer import append_chunk
-from assistant_core.persistence.models import Conversation, ConversationEvent
+from assistant_core.persistence.models import (
+    BackgroundTask,
+    Conversation,
+    ConversationEvent,
+)
+from assistant_core.persistence.repositories.background_tasks import (
+    BackgroundTaskRepository,
+)
 from assistant_core.platform.db import async_session_factory
 from assistant_core.tasks.app import install_task_app, reset_task_app
 from assistant_core.tasks.chat_turn import ChatTurnJobArgs, defer_chat_turn
@@ -101,6 +109,23 @@ async def _chunk_types(conversation_id: UUID) -> list[str]:
             .order_by(ConversationEvent.id),
         )
         return [str(row.chunk["type"]) for row in rows]
+
+
+def _only_job_id(app: procrastinate.App) -> int:
+    connector = app.connector
+    assert isinstance(connector, InMemoryConnector)
+    assert len(connector.jobs) == 1
+    return int(next(iter(connector.jobs)))
+
+
+async def _task_rows(conversation_id: UUID) -> list[BackgroundTask]:
+    async with async_session_factory() as session:
+        rows = await session.scalars(
+            select(BackgroundTask)
+            .where(BackgroundTask.conversation_id == conversation_id)
+            .order_by(BackgroundTask.created_at),
+        )
+        return list(rows)
 
 
 async def _chunks(conversation_id: UUID) -> list[dict[str, Any]]:
@@ -280,3 +305,80 @@ def test_the_published_contract_reads_both_casings() -> None:
     assert camel.payload.turn_id == turn_id
     assert camel.payload.body.conversation_id == conversation_id
     assert snake == camel
+
+
+async def test_a_dead_worker_s_durable_task_is_failed_and_its_turn_answers(
+    durable_runtime: DurableRuntime,
+    task_queue: procrastinate.App,
+) -> None:
+    """A killed durable job reports its task and closes the thread's stream."""
+    await durable_runtime.run(ONE_PROMPT)
+    job_id = _only_job_id(task_queue)
+    _hold(task_queue, job_id)
+
+    await release_stalled_jobs()
+
+    rows = await _task_rows(durable_runtime.conversation_id)
+    assert [row.status for row in rows] == ["failed"]
+    assert rows[0].error == (
+        "The worker running this task stopped, which an out-of-memory kill "
+        "can cause. Ask for it again to retry."
+    )
+    types = await _chunk_types(durable_runtime.conversation_id)
+    assert "data-task-completed" in types
+    assert types[-2:] == ["finish", "done"]
+    assert _status(task_queue, job_id) == "failed"
+
+
+async def test_the_thread_is_told_the_task_failed_and_why(
+    durable_runtime: DurableRuntime,
+    task_queue: procrastinate.App,
+) -> None:
+    await durable_runtime.run(ONE_PROMPT)
+    _hold(task_queue, _only_job_id(task_queue))
+
+    await release_stalled_jobs()
+
+    completed = [
+        chunk
+        for chunk in await _chunks(durable_runtime.conversation_id)
+        if chunk["type"] == "data-task-completed"
+    ]
+    assert completed[0]["data"]["status"] == "failed"
+    assert "out-of-memory" in completed[0]["data"]["error"]
+
+
+async def test_a_result_the_worker_recorded_before_it_died_is_delivered(
+    durable_runtime: DurableRuntime,
+    task_queue: procrastinate.App,
+) -> None:
+    """A task that already answered is completed, not failed."""
+    await durable_runtime.run(ONE_PROMPT)
+    rows = await _task_rows(durable_runtime.conversation_id)
+    repo = BackgroundTaskRepository(session_factory=async_session_factory)
+    await repo.mark_result_ready(task_id=rows[0].id, result={"counted": 2})
+    _hold(task_queue, _only_job_id(task_queue))
+
+    await release_stalled_jobs()
+
+    settled = await _task_rows(durable_runtime.conversation_id)
+    assert [row.status for row in settled] == ["complete"]
+    assert settled[0].result == {"counted": 2}
+
+
+async def test_a_task_the_worker_already_settled_is_left_alone(
+    durable_runtime: DurableRuntime,
+    task_queue: procrastinate.App,
+) -> None:
+    await durable_runtime.run(ONE_PROMPT)
+    rows = await _task_rows(durable_runtime.conversation_id)
+    repo = BackgroundTaskRepository(session_factory=async_session_factory)
+    await repo.mark_failed(task_id=rows[0].id, error="the site did not answer")
+    before = await _chunk_types(durable_runtime.conversation_id)
+    _hold(task_queue, _only_job_id(task_queue))
+
+    await release_stalled_jobs()
+
+    settled = await _task_rows(durable_runtime.conversation_id)
+    assert settled[0].error == "the site did not answer"
+    assert await _chunk_types(durable_runtime.conversation_id) == before
