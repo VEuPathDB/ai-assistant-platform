@@ -267,6 +267,36 @@ describe("section 2, the snapshot", () => {
   });
 });
 
+describe("section 4, a snapshot taken while a turn runs", () => {
+  it("reports a turn in flight when the snapshot ends at the prompt", async () => {
+    const { client } = clientWith([
+      jsonResponse({
+        cursor: 220744,
+        chunks: [
+          { type: "user-message", message: { id: "u1", role: "user", parts: [] } },
+        ],
+      }),
+    ]);
+
+    expect((await client.snapshot("c1")).turnInFlight).toBe(true);
+  });
+
+  it("reports no turn in flight when the snapshot ends at a terminator", async () => {
+    const { client } = clientWith([
+      jsonResponse({
+        cursor: 14,
+        chunks: [
+          { type: "start", messageId: "a1" },
+          { type: "finish", finishReason: "stop" },
+          { type: "done" },
+        ],
+      }),
+    ]);
+
+    expect((await client.snapshot("c1")).turnInFlight).toBe(false);
+  });
+});
+
 describe("section 4, polling instead of holding a connection", () => {
   it("gives the same messages the tail would have built", async () => {
     const live = clientWith([sseResponse(TURN)]);

@@ -1,6 +1,6 @@
 # The assistant runtime wire protocol
 
-**Version 2.0.0.** This document specifies the bytes a client exchanges with an
+**Version 2.0.1.** This document specifies the bytes a client exchanges with an
 assistant built on `assistant_core`. It is written so a consumer in any
 language can implement a client from this page alone, with no reference to the
 JavaScript SDK that inspired the chunk vocabulary. Section 14 records what each
@@ -110,6 +110,11 @@ carries the message's `messageId` and, as `after`, the exclusive cursor a tail
 replays it from. It is absent when the last message is closed. A client that has lost
 its cursor therefore reads the thread and its resume point in one request, and
 never tails from `0`.
+
+A client that reads a snapshot whose last chunk is a prompt envelope opens a
+tail from the snapshot's cursor, because the turn that prompt opened has not
+terminated; a `204` answer means the turn ended without writing, and the client
+falls back to the snapshot.
 
 A tail ends at the first `done` it serves (section 6.1), so a client reading an
 open message across a durable gap issues a second tail from that `done`'s
@@ -851,6 +856,7 @@ data: {"type":"done","reason":"completed"}
 
 | Version | What it added |
 | --- | --- |
+| `2.0.1` | Section 4 states what a client does with a snapshot whose last chunk is a prompt envelope: it opens a tail from the snapshot's cursor, and falls back to the snapshot when that tail answers `204`. Before this the section named the resume rule for an open message alone, and a running turn's snapshot ends at its prompt and names no open message, so a client had no rule that told it to follow the turn and showed the prompt with nothing after it. |
 | `2.0.0` | `data-lead-usage`, `data-sub-agent-call` and `data-sub-agent-step` leave the core vocabulary: the runtime emits none of them, and they describe one agent topology, so an assistant with a lead and sub-agents registers them itself. Section 6's rule for closing a part that carries its own state names no kind now, because it holds for any such part. `data-scratchpad-updated` joins the table: the runtime's own scratchpad tools emit it, and a reader that shows the notes reads them again when it arrives. Before this a client written from this page alone met a kind the page did not name, and implemented three kinds nothing here produces. |
 | `1.7.1` | Section 12.2's product-extension table is empty: the document names no host's own request field, and says a host documents the extensions its assistant reads. Before this the table carried one deployment's field, so a reader took a product's extension for part of the wire. The request examples carry a neutral site, mode and tool name for the same reason. |
 | `1.7.0` | The snapshot carries `openMessage` (sections 2, 4): the `messageId` of the message its last turn left open and the exclusive cursor a tail replays it from. Before this a client that had lost its cursor could recover the thread but not its resume point, so it tailed from `0` mid-turn. Section 4 also states the second tail a client opens across a durable gap, because a tail ends at the first `done` it serves. |

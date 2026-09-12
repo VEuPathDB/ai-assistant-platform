@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { HANDLED_ENVELOPE_KINDS, reduceSnapshot } from "../../src/core/snapshot.ts";
+import {
+  HANDLED_ENVELOPE_KINDS,
+  reduceSnapshot,
+  turnIsInFlight,
+} from "../../src/core/snapshot.ts";
 
 function userEnvelope(id: string, text: string): unknown {
   return {
@@ -212,5 +216,48 @@ describe("section 2, a snapshot rebuilds the whole conversation", () => {
 
   it("drops an envelope that carries no message", () => {
     expect(reduceSnapshot([{ type: "user-message" }])).toEqual([]);
+  });
+});
+
+describe("section 4, the snapshot says whether a turn is running", () => {
+  it("reads a snapshot that ends at a user prompt as a turn in flight", () => {
+    expect(turnIsInFlight([userEnvelope("u1", "kinases")])).toBe(true);
+  });
+
+  it("reads a snapshot that ends at a system prompt as a turn in flight", () => {
+    const envelope = {
+      type: "system-message",
+      message: { id: "s1", role: "system", parts: [] },
+    };
+
+    expect(turnIsInFlight([envelope])).toBe(true);
+  });
+
+  it("reads a snapshot that ends at a turn terminator as no turn in flight", () => {
+    expect(
+      turnIsInFlight([
+        userEnvelope("u1", "kinases"),
+        { type: "start", messageId: "a1" },
+        { type: "finish", finishReason: "stop" },
+        { type: "done" },
+      ]),
+    ).toBe(false);
+  });
+
+  it("reads an answer the log holds whole as no turn in flight", () => {
+    const envelope = {
+      type: "assistant-message",
+      message: { id: "a1", role: "assistant", parts: [] },
+    };
+
+    expect(turnIsInFlight([userEnvelope("u1", "kinases"), envelope])).toBe(false);
+  });
+
+  it("reads an empty log as no turn in flight", () => {
+    expect(turnIsInFlight([])).toBe(false);
+  });
+
+  it("looks past an entry that is not a chunk", () => {
+    expect(turnIsInFlight([userEnvelope("u1", "kinases"), null, 7])).toBe(true);
   });
 });

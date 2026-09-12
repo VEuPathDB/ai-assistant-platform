@@ -8,12 +8,30 @@ import {
 } from "./message.ts";
 import { reduceTurn } from "./reduce.ts";
 
-/** The kinds section 5.3 writes to the log and never frames onto the wire. */
-export const HANDLED_ENVELOPE_KINDS: ReadonlySet<string> = new Set([
+/** The kinds section 5.3 writes for the prompt side of a turn. */
+const PROMPT_ENVELOPE_KINDS: ReadonlySet<string> = new Set([
   "user-message",
   "system-message",
+]);
+
+/** The kinds section 5.3 writes to the log and never frames onto the wire. */
+export const HANDLED_ENVELOPE_KINDS: ReadonlySet<string> = new Set([
+  ...PROMPT_ENVELOPE_KINDS,
   "assistant-message",
 ]);
+
+/**
+ * Section 4: a snapshot that ends at a prompt envelope holds a turn that was
+ * opened and not terminated, so its reader opens a tail from the cursor.
+ */
+export function turnIsInFlight(chunks: readonly unknown[]): boolean {
+  for (let index = chunks.length - 1; index >= 0; index -= 1) {
+    const chunk = asChunk(chunks[index]);
+    if (chunk === undefined) continue;
+    return PROMPT_ENVELOPE_KINDS.has(chunk.type);
+  }
+  return false;
+}
 
 export interface Snapshot {
   chunks: unknown[];

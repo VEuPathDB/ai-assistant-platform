@@ -1,5 +1,17 @@
 # Log
 
+## 2026-09-12
+
+A snapshot says whether a turn is running. `AssistantClient.snapshot` answers
+`turnInFlight` beside `messages` and `cursor`, true when the last chunk of the
+snapshot is a prompt envelope, which is the shape a snapshot takes while a turn
+the host has not terminated is running. Section 4 of `PROTOCOL.md` states the
+rule the fact serves: such a reader opens a tail from the snapshot's cursor,
+and a `204` there means the turn ended without writing, so the snapshot stands.
+A client that followed `openMessage` alone read a running turn as an idle
+thread, because a running turn's snapshot ends at its prompt and names no open
+message. PROTOCOL 2.0.1.
+
 ## 2026-09-11
 
 A host serves three endpoints and starts a worker from this repository alone.

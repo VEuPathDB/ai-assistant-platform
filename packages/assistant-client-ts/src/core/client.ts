@@ -7,7 +7,7 @@ import {
   tailUrl,
 } from "./cursor.ts";
 import { type ThreadMessage } from "./message.ts";
-import { type Snapshot, reduceSnapshot } from "./snapshot.ts";
+import { type Snapshot, reduceSnapshot, turnIsInFlight } from "./snapshot.ts";
 import { isComment, isDone, readFrames } from "./sse.ts";
 
 export class AssistantHttpError extends Error {
@@ -33,6 +33,8 @@ export interface AssistantClientOptions {
 export interface SnapshotResult {
   messages: ThreadMessage[];
   cursor: number;
+  /** Section 4: a turn is running, and the reader follows it with a tail. */
+  turnInFlight: boolean;
 }
 
 export type TailResult =
@@ -104,7 +106,11 @@ export class AssistantClient {
       this.cursors.write(threadId, snapshot.cursor);
     }
     this.cursors.writeOpenMessage(threadId, snapshot.openMessage);
-    return { messages: reduceSnapshot(snapshot.chunks), cursor: snapshot.cursor };
+    return {
+      messages: reduceSnapshot(snapshot.chunks),
+      cursor: snapshot.cursor,
+      turnInFlight: turnIsInFlight(snapshot.chunks),
+    };
   }
 
   /** Read the snapshot as the whole conversation, for a host that cannot stream. */

@@ -49,7 +49,7 @@ const client = new AssistantClient({
   headers: () => ({ authorization: `Bearer ${token}` }),
 });
 
-const { messages } = await client.snapshot(threadId);
+const { messages, turnInFlight } = await client.snapshot(threadId);
 
 const tail = await client.openTail(threadId);
 if (tail.status === "idle") {
@@ -58,6 +58,11 @@ if (tail.status === "idle") {
   for await (const chunk of tail.chunks) render(chunk);
 }
 ```
+
+`turnInFlight` is true when the snapshot ends at the prompt envelope of a turn
+the host has not terminated. Section 4: its reader follows that turn with a
+tail from the snapshot's cursor, and a `204` there means the turn ended without
+writing, so the snapshot stands as the whole thread.
 
 A host that cannot hold a connection calls `client.poll(threadId)` instead. The
 ordering and the bytes are the same either way.
