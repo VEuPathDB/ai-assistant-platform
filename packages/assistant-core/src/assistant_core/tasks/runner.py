@@ -27,7 +27,9 @@ from assistant_core.memory.store import MemoryStore
 from assistant_core.models.capture import capture_llm
 from assistant_core.persistence.repositories.background_tasks import (
     ACTIVE_TASK_STATES,
+    REPORTED_TASK_STATES,
     BackgroundTaskRepository,
+    TaskOutcome,
 )
 from assistant_core.platform.config import get_runtime_settings
 from assistant_core.platform.db import async_session_factory
@@ -261,15 +263,24 @@ async def settle_unfinished_task(
 ) -> None:
     """Settle a durable task in the place of the worker that stopped.
 
-    A task that already recorded an outcome is answered with it. A task that
-    recorded none fails with the reason, so the parked turn answers either way.
+    A closed row has its parked call answered again, because a settler can stop
+    between the row and the call. An open row that recorded a result is
+    delivered with it, and one that recorded nothing fails with the reason.
     """
     repo = BackgroundTaskRepository(session_factory=async_session_factory)
     row = await repo.get(task_id=task_id)
-    if row is None or row.status not in ACTIVE_TASK_STATES:
+    if row is None:
         return
-    reported = await repo.reported_outcomes(task_ids=(task_id,))
-    if task_id not in reported:
+    outcome = TaskOutcome.model_validate(row)
+    if outcome.status not in ACTIVE_TASK_STATES:
+        await _answer_and_settle(
+            repo,
+            thread_id=str(conversation_id),
+            result=as_durable_result(outcome),
+            fallback=(),
+        )
+        return
+    if outcome.status not in REPORTED_TASK_STATES:
         await _fail_task(
             repo,
             task_id=task_id,
@@ -277,10 +288,13 @@ async def settle_unfinished_task(
             error=error,
         )
         return
+    # A row that recorded a failure is closed, so what an open row records is
+    # the result the worker stored. The dead worker may not have announced it.
+    await _announce_completion(conversation_id, task_id, "success", None)
     await _answer_and_settle(
         repo,
         thread_id=str(conversation_id),
-        result=as_durable_result(reported[task_id]),
+        result=as_durable_result(outcome),
         fallback=(task_id,),
     )
 

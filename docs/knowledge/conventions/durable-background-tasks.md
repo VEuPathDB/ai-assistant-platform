@@ -80,16 +80,33 @@ settles what that job was doing.
 
 # What the sweep settles
 
+One releaser per job. The sweep runs on a schedule and takes no job lock, so
+`_release_job` holds `advisory_lease("assistant_core.release_job:<job id>")`
+across the settlement and the `finish_job` that follows it. The lease is a
+session-level database lock on a connection of its own: a second sweep that
+arrives while the first is still writing finds the name taken and does nothing,
+and a sweep that stops releases the name to the next one.
+
 A released `chat_turn:run` job gets its stream closed: `error`,
 `data-turn-failed`, `finish` and `done`.
 
-A released `durable:<tool>` job is settled in the worker's place, through the
-path the worker itself uses. `settle_unfinished_task` reads the row: a task
-that already recorded an outcome is answered with it, and a task that recorded
-none is failed with the reason and announced as `data-task-completed`. Either
-way the completion turn opens, so the parked call is answered, the row leaves
-the active statuses and the thread's stream reaches `done`. A row that is
-already `complete` or `failed` is left alone.
+A released `durable:<tool>` job is settled in the worker's place, by
+`settle_unfinished_task`, which reads the row and takes one of three cases:
+
+- **closed** (`complete`, `failed`): the outcome stands. The parked call is
+  answered with it and nothing else is written, because a settler can stop
+  between closing the row and answering the call.
+- **open with a result** (`result_ready`, `resuming`): the result is announced
+  as `data-task-completed` and delivered, and the row closes when the turn
+  returns. The dead worker may not have announced it, and a second announcement
+  of one outcome is what a reader already tolerates.
+- **open with nothing** (`pending`, `running`): the row fails with the reason,
+  the failure is announced, and the parked call is answered with it.
+
+The order a settlement writes in is therefore: take the lease, write the
+outcome chunk, close the row, open the completion turn, release the job. Every
+step before the last is safe to run twice, so a settler that stops hands a
+half-done settlement to the next sweep.
 
 # The beat and the window
 

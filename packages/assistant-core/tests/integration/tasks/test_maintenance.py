@@ -26,10 +26,19 @@ from assistant_core.persistence.repositories.background_tasks import (
 from assistant_core.platform.db import async_session_factory
 from assistant_core.tasks.app import install_task_app, reset_task_app
 from assistant_core.tasks.chat_turn import ChatTurnJobArgs, defer_chat_turn
+from assistant_core.tasks.completion_turn import (
+    CompletionTurn,
+    install_completion_turn,
+)
 from assistant_core.tasks.maintenance import release_dead_turn, release_stalled_jobs
 from assistant_core.tasks.names import CHAT_TURN_QUEUE, CHAT_TURN_TASK
 
 SITE = "synthetic"
+
+_DEAD_WORKER_TASK_REASON = (
+    "The worker running this task stopped, which an out-of-memory kill "
+    "can cause. Ask for it again to retry."
+)
 
 
 @pytest.fixture
@@ -320,10 +329,7 @@ async def test_a_dead_worker_s_durable_task_is_failed_and_its_turn_answers(
 
     rows = await _task_rows(durable_runtime.conversation_id)
     assert [row.status for row in rows] == ["failed"]
-    assert rows[0].error == (
-        "The worker running this task stopped, which an out-of-memory kill "
-        "can cause. Ask for it again to retry."
-    )
+    assert rows[0].error == _DEAD_WORKER_TASK_REASON
     types = await _chunk_types(durable_runtime.conversation_id)
     assert "data-task-completed" in types
     assert types[-2:] == ["finish", "done"]
@@ -334,6 +340,7 @@ async def test_the_thread_is_told_the_task_failed_and_why(
     durable_runtime: DurableRuntime,
     task_queue: procrastinate.App,
 ) -> None:
+    """The outcome chunk carries the same reason the row records."""
     await durable_runtime.run(ONE_PROMPT)
     _hold(task_queue, _only_job_id(task_queue))
 
@@ -345,7 +352,7 @@ async def test_the_thread_is_told_the_task_failed_and_why(
         if chunk["type"] == "data-task-completed"
     ]
     assert completed[0]["data"]["status"] == "failed"
-    assert "out-of-memory" in completed[0]["data"]["error"]
+    assert completed[0]["data"]["error"] == _DEAD_WORKER_TASK_REASON
 
 
 async def test_a_result_the_worker_recorded_before_it_died_is_delivered(
@@ -364,12 +371,19 @@ async def test_a_result_the_worker_recorded_before_it_died_is_delivered(
     settled = await _task_rows(durable_runtime.conversation_id)
     assert [row.status for row in settled] == ["complete"]
     assert settled[0].result == {"counted": 2}
+    completed = [
+        chunk
+        for chunk in await _chunks(durable_runtime.conversation_id)
+        if chunk["type"] == "data-task-completed"
+    ]
+    assert [chunk["data"]["status"] for chunk in completed] == ["success"]
 
 
-async def test_a_task_the_worker_already_settled_is_left_alone(
+async def test_a_half_settled_task_has_its_parked_call_answered(
     durable_runtime: DurableRuntime,
     task_queue: procrastinate.App,
 ) -> None:
+    """A settler that stopped after it closed the row leaves the call to the next."""
     await durable_runtime.run(ONE_PROMPT)
     rows = await _task_rows(durable_runtime.conversation_id)
     repo = BackgroundTaskRepository(session_factory=async_session_factory)
@@ -380,5 +394,35 @@ async def test_a_task_the_worker_already_settled_is_left_alone(
     await release_stalled_jobs()
 
     settled = await _task_rows(durable_runtime.conversation_id)
+    types = await _chunk_types(durable_runtime.conversation_id)
     assert settled[0].error == "the site did not answer"
-    assert await _chunk_types(durable_runtime.conversation_id) == before
+    assert types[-2:] == ["finish", "done"]
+    assert types.count("data-task-completed") == before.count("data-task-completed")
+
+
+async def test_a_second_sweep_does_not_open_a_duplicate_completion_turn(
+    durable_runtime: DurableRuntime,
+    task_queue: procrastinate.App,
+) -> None:
+    """One settler at a time: a sweep that arrives mid-settlement does nothing."""
+    await durable_runtime.run(ONE_PROMPT)
+    rows = await _task_rows(durable_runtime.conversation_id)
+    repo = BackgroundTaskRepository(session_factory=async_session_factory)
+    await repo.mark_result_ready(task_id=rows[0].id, result={"counted": 2})
+    job_id = _only_job_id(task_queue)
+    _hold(task_queue, job_id)
+    drives: list[UUID] = []
+
+    async def answer(turn: CompletionTurn) -> None:
+        drives.append(turn.durable_result.task_id)
+        if len(drives) == 1:
+            await release_stalled_jobs()
+        await durable_runtime.answer(turn)
+
+    install_completion_turn(answer)
+
+    await release_stalled_jobs()
+
+    assert drives == [rows[0].id]
+    assert (await _chunk_types(durable_runtime.conversation_id)).count("done") == 1
+    assert _status(task_queue, job_id) == "failed"

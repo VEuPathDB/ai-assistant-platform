@@ -21,6 +21,7 @@ from assistant_core.graph.stream_events import turn_failed_event
 from assistant_core.persistence.models import ConversationEvent
 from assistant_core.platform.config import get_runtime_settings
 from assistant_core.platform.db import async_session_factory
+from assistant_core.platform.lease import advisory_lease
 from assistant_core.platform.logging import get_logger
 from assistant_core.tasks.app import task_app
 from assistant_core.tasks.chat_turn import ChatTurnJobArgs
@@ -37,10 +38,13 @@ class _StalledReason:
 
     turn: str
     task: str
+    job: str
 
     def text_for(self, task_name: str) -> str:
         """The wording the job of this name reports."""
-        return self.task if is_durable_job_name(task_name) else self.turn
+        if task_name == CHAT_TURN_TASK:
+            return self.turn
+        return self.task if is_durable_job_name(task_name) else self.job
 
 
 _LONG_RUNNING = _StalledReason(
@@ -52,6 +56,7 @@ _LONG_RUNNING = _StalledReason(
         "The worker running this task stopped before it finished. "
         "Ask for it again to retry."
     ),
+    job="The worker running this job stopped before it finished.",
 )
 
 _DEAD_WORKER = _StalledReason(
@@ -63,6 +68,7 @@ _DEAD_WORKER = _StalledReason(
         "The worker running this task stopped, which an out-of-memory kill can "
         "cause. Ask for it again to retry."
     ),
+    job=("The worker running this job stopped, which an out-of-memory kill can cause."),
 )
 
 
@@ -117,24 +123,33 @@ async def release_dead_turn(conversation_id: UUID) -> None:
 
 
 async def _release_job(job: Job, reason: _StalledReason) -> None:
-    """Settle the job's work, then fail the job so its lock releases."""
-    error_text = reason.text_for(job.task_name)
-    # The work is settled first: the thread lock is still held, so no
-    # successor turn can interleave its chunks with it.
-    await _settle_released_work(job, error_text)
-    await task_app().job_manager.finish_job(
-        job,
-        status=Status.FAILED,
-        delete_job=False,
-    )
-    logger.warning(
-        "Released a stalled job",
-        job_id=job.id,
-        task_name=job.task_name,
-        queue_name=job.queue,
-        lock=job.lock,
-        error_text=error_text,
-    )
+    """Settle the job's work, then fail the job so its lock releases.
+
+    The lease admits one releaser per job: a sweep runs on a schedule and takes
+    no job lock, so without it a second pass re-enters a settlement the first
+    is still writing.
+    """
+    async with advisory_lease(f"assistant_core.release_job:{job.id}") as leased:
+        if not leased:
+            logger.info("Another sweep is releasing this job", job_id=job.id)
+            return
+        error_text = reason.text_for(job.task_name)
+        # The work is settled first: the thread lock is still held, so no
+        # successor turn can interleave its chunks with it.
+        await _settle_released_work(job, error_text)
+        await task_app().job_manager.finish_job(
+            job,
+            status=Status.FAILED,
+            delete_job=False,
+        )
+        logger.warning(
+            "Released a stalled job",
+            job_id=job.id,
+            task_name=job.task_name,
+            queue_name=job.queue,
+            lock=job.lock,
+            error_text=error_text,
+        )
 
 
 async def _settle_released_work(job: Job, error_text: str) -> None:

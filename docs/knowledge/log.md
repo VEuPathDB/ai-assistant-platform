@@ -2,6 +2,19 @@
 
 ## 2026-09-12
 
+One sweep at a time releases one job, and a half-done settlement is finished by
+the next. `_release_job` holds `assistant_core.platform.lease.advisory_lease`,
+a session-level database lock on a connection of its own, across the settlement
+and the `finish_job` after it, because the sweep is periodic and holds no job
+lock: without it a second pass re-entered a settlement whose row was still
+active across a whole completion turn and opened a duplicate turn on the same
+thread, once a minute. The lock is the connection, so a settler that stops
+releases it. `settle_unfinished_task` now reads the row into three cases: a
+closed row has its parked call answered again and writes nothing else, an open
+row that recorded a result announces `data-task-completed` and delivers it, and
+an open row that recorded nothing fails with the reason. Every step of a
+settlement before the job is released is safe to run twice.
+
 The stalled-job sweep settles a durable task, not only a chat turn.
 `release_stalled_jobs` releases every job no live worker holds, and it now
 reports the released `durable:<tool>` job through the door the worker's own
