@@ -9,7 +9,11 @@ from __future__ import annotations
 import asyncio
 import os
 from collections.abc import AsyncIterator, Awaitable, Callable, Iterator
-from contextlib import AbstractAsyncContextManager, asynccontextmanager
+from contextlib import (
+    AbstractAsyncContextManager,
+    asynccontextmanager,
+    contextmanager,
+)
 from dataclasses import dataclass, field
 from typing import Any
 from uuid import UUID, uuid4
@@ -20,6 +24,7 @@ from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from langgraph.graph.state import CompiledStateGraph
 from procrastinate.testing import InMemoryConnector
+from pydantic import BaseModel, ConfigDict, Field
 from pydantic_ai import Agent, RunContext
 from pydantic_ai.messages import (
     ModelMessage,
@@ -95,9 +100,16 @@ SIFT_TOOL = "sift"
 
 CRUNCH_CALL_ID = "call_crunch"
 SIFT_CALL_ID = "call_sift"
+AGAIN_CALL_ID = "call_crunch_again"
 
 ONE_PROMPT = "please crunch"
 TWO_PROMPT = "please crunch and sift"
+AGAIN_PROMPT = "please crunch twice over"
+
+# The count the twice-over marker crunches, which its answer is recognised by.
+AGAIN_COUNT = 7
+
+CARRIED_TOKEN = "carried-token"
 
 CRUNCH_SECONDS = 90
 SIFT_SECONDS = 30
@@ -119,24 +131,43 @@ class CarriedState(DurableJobState):
 
 
 class CarriedJobContext:
-    """A host job context that carries one value onto the worker."""
+    """A host job context that carries one ambient value onto the worker.
+
+    ``capture`` reads what the process holds now, as a host's own context
+    reads a credential, so a call made where nothing is restored carries
+    nothing.
+    """
 
     state_type = CarriedState
 
     def __init__(self, runs: WorkerRuns, token: str) -> None:
         self._runs = runs
-        self._token = token
+        self._ambient = token
+
+    @contextmanager
+    def a_fresh_worker(self) -> Iterator[None]:
+        """A worker holds nothing of its own from the process that deferred."""
+        previous, self._ambient = self._ambient, ""
+        try:
+            yield
+        finally:
+            self._ambient = previous
 
     def capture(self) -> CarriedState:
-        return CarriedState(token=self._token)
+        return CarriedState(token=self._ambient)
 
     def restore(self, state: DurableJobState) -> AbstractAsyncContextManager[None]:
         runs = self._runs
+        carried = CarriedState.model_validate(state.model_dump())
 
         @asynccontextmanager
         async def _scope() -> AsyncIterator[None]:
             runs.restored.append(state.model_dump(mode="json"))
-            yield
+            previous, self._ambient = self._ambient, carried.token
+            try:
+                yield
+            finally:
+                self._ambient = previous
 
         return _scope()
 
@@ -222,22 +253,64 @@ def task_queue(
 
 @pytest.fixture
 def carried_job_context(worker_runs: WorkerRuns) -> Iterator[CarriedJobContext]:
-    context = CarriedJobContext(worker_runs, "carried-token")
+    context = CarriedJobContext(worker_runs, CARRIED_TOKEN)
     install_durable_job_context(context)
     yield context
     reset_durable_job_context()
 
 
+class _CrunchAnswer(BaseModel):
+    """One durable answer, read for the count the body reported."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    counted: int = 0
+
+
+class _ReturnedCall(BaseModel):
+    """The payload a parked call is answered with."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    result: _CrunchAnswer = Field(default_factory=_CrunchAnswer)
+
+
+def _asks_for_another_call(returned: list[Any]) -> bool:
+    """Whether the answers say this turn crunches a second time."""
+    counts = [_ReturnedCall.model_validate(item).result.counted for item in returned]
+    return AGAIN_COUNT in counts
+
+
 def _one_or_two(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
-    """Two markers: one durable call, or two in one model step."""
+    """Three markers: one durable call, two in one step, or one after the answer."""
     del info
     turn = current_turn(messages)
     if tool_return_parts(turn):
         returned = [part.content for part in tool_return_parts(turn)]
+        if _asks_for_another_call(returned):
+            return ModelResponse(
+                parts=[
+                    ToolCallPart(
+                        tool_name=CRUNCH_TOOL,
+                        args={"n": 1},
+                        tool_call_id=AGAIN_CALL_ID,
+                    ),
+                ],
+            )
         return ModelResponse(parts=[scripted_text(f"Results: {returned}.")])
     made = {part.tool_name for part in called_tool_parts(turn)}
     if made:
         return ModelResponse(parts=[scripted_text("Done.")])
+    if AGAIN_PROMPT in last_user_text(turn):
+        return ModelResponse(
+            parts=[
+                ToolCallPart(
+                    tool_name=CRUNCH_TOOL,
+                    args={"n": AGAIN_COUNT},
+                    tool_call_id=CRUNCH_CALL_ID,
+                ),
+            ],
+        )
     if TWO_PROMPT in last_user_text(turn):
         return ModelResponse(
             parts=[

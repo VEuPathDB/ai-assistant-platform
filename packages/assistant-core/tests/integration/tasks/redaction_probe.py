@@ -316,7 +316,7 @@ async def run(scenario: Scenario) -> ProbeResult:
         worker_logger=worker.logger.name,
         job_name=tool.job_name,
         reads=len(reads),
-        read_matches_marker=reads == [MARKER],
+        read_matches_marker=set(reads) == {MARKER},
         task_status="" if finished is None else finished.status,
         counted=0 if finished is None else int(finished.result["counted"]),
     )

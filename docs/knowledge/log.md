@@ -2,6 +2,17 @@
 
 ## 2026-09-12
 
+The turn that answers a durable call runs under the state that call carried.
+The body ran inside `restore(...)` and the completion turn opened after that
+block closed, so every tool of the answering turn read an empty host context: a
+deployment that carries a credential had the turn's first call refused, and a
+durable tool the turn started captured nothing. `_answer_and_settle` now holds
+the carried scope around the completion turn on all four paths that open one,
+and the stalled-job sweep reads the carried state back off the job's payload
+through `StalledDurableTask`, which keeps it as JSON because only the host's
+own state type validates it without dropping its fields. One job therefore
+enters `restore` twice, once around the body and once around the turn.
+
 One sweep at a time releases one job, and a half-done settlement is finished by
 the next. `_release_job` holds `assistant_core.platform.lease.advisory_lease`,
 a session-level database lock on a connection of its own, across the settlement

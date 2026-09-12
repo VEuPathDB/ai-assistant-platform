@@ -9,7 +9,7 @@ when the worker that held it stopped.
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
-from contextlib import nullcontext
+from contextlib import AbstractAsyncContextManager, nullcontext
 from dataclasses import dataclass
 from typing import Any, Literal
 from uuid import UUID
@@ -175,6 +175,12 @@ async def run_durable_task(
         )
 
 
+def _carried_scope(job_context: JSONObject) -> AbstractAsyncContextManager[None]:
+    """The host state a durable call captured, put back around what runs here."""
+    carried = durable_job_context()
+    return carried.restore(carried.state_type.model_validate(job_context))
+
+
 async def _run_durable_task_inner(
     *,
     tool_name: str,
@@ -197,6 +203,7 @@ async def _run_durable_task_inner(
             task_id=task_uuid,
             conversation_id=chat_uuid,
             error=error,
+            job_context=job_context,
         )
         return
 
@@ -207,10 +214,9 @@ async def _run_durable_task_inner(
     )
 
     settings = get_runtime_settings()
-    carried = durable_job_context()
     try:
         async with (
-            carried.restore(carried.state_type.model_validate(job_context)),
+            _carried_scope(job_context),
             attach_conversation_application(chat_uuid),
             lifespan_memory_store(settings.database_url) as raw_memory,
         ):
@@ -241,6 +247,7 @@ async def _run_durable_task_inner(
             task_id=task_uuid,
             conversation_id=chat_uuid,
             error=str(exc) or exc.__class__.__name__,
+            job_context=job_context,
         )
         return
 
@@ -252,6 +259,7 @@ async def _run_durable_task_inner(
         thread_id=thread_id,
         result=DurableTaskResult(task_id=task_uuid, status="success", result=result),
         fallback=(task_uuid,),
+        job_context=job_context,
     )
 
 
@@ -260,6 +268,7 @@ async def settle_unfinished_task(
     task_id: UUID,
     conversation_id: UUID,
     error: str,
+    job_context: JSONObject,
 ) -> None:
     """Settle a durable task in the place of the worker that stopped.
 
@@ -278,6 +287,7 @@ async def settle_unfinished_task(
             thread_id=str(conversation_id),
             result=as_durable_result(outcome),
             fallback=(),
+            job_context=job_context,
         )
         return
     if outcome.status not in REPORTED_TASK_STATES:
@@ -286,6 +296,7 @@ async def settle_unfinished_task(
             task_id=task_id,
             conversation_id=conversation_id,
             error=error,
+            job_context=job_context,
         )
         return
     # A row that recorded a failure is closed, so what an open row records is
@@ -296,6 +307,7 @@ async def settle_unfinished_task(
         thread_id=str(conversation_id),
         result=as_durable_result(outcome),
         fallback=(task_id,),
+        job_context=job_context,
     )
 
 
@@ -305,6 +317,7 @@ async def _fail_task(
     task_id: UUID,
     conversation_id: UUID,
     error: str,
+    job_context: JSONObject,
 ) -> None:
     """Fail one task's row, tell the thread, and answer the call it parked."""
     await repo.mark_failed(task_id=task_id, error=error)
@@ -314,6 +327,7 @@ async def _fail_task(
         thread_id=str(conversation_id),
         result=DurableTaskResult(task_id=task_id, status="failed", error=error),
         fallback=(),
+        job_context=job_context,
     )
 
 
@@ -323,13 +337,17 @@ async def _answer_and_settle(
     thread_id: str,
     result: DurableTaskResult,
     fallback: tuple[UUID, ...],
+    job_context: JSONObject,
 ) -> None:
     """Open the completion turn, then close the rows it spoke for.
 
-    ``fallback`` is settled when no parked run answered the task: a task whose
-    own tool failed is already terminal, so the failure paths pass nothing.
+    The turn runs under the state the answered call carried, so a durable call
+    it makes captures what that call captured. ``fallback`` is settled when no
+    parked run answered the task: a task whose own tool failed is already
+    terminal, so the failure paths pass nothing.
     """
-    outcome = await safe_completion_turn(thread_id, result)
+    async with _carried_scope(job_context):
+        outcome = await safe_completion_turn(thread_id, result)
     if outcome.waiting:
         return
     for task_id in outcome.answered or fallback:

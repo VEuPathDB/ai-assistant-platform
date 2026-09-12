@@ -68,7 +68,11 @@ async def test_a_real_worker_logs_the_job_without_the_carried_credential(
     patch_app_db_engine: None,
     db_cleaner: None,
 ) -> None:
-    """The line is scrubbed, and the body still reads the credential once."""
+    """The line is scrubbed, and the credential still reaches what runs here.
+
+    It is restored twice: around the body, and around the turn that answers
+    the call the body was deferred for.
+    """
     del patch_app_db_engine, db_cleaner
     logged, result = await _run_probe(scenario, tmp_path / f"{scenario.value}.json")
 
@@ -76,7 +80,7 @@ async def test_a_real_worker_logs_the_job_without_the_carried_credential(
     assert REDACTION_MARKER in logged
     assert MARKER not in logged
     assert result.worker_logger == f"procrastinate.worker.{worker_name(scenario)}"
-    assert result.reads == 1
+    assert result.reads == 2
     assert result.read_matches_marker
     assert result.task_status == "complete"
     assert result.counted == PROBE_COUNT

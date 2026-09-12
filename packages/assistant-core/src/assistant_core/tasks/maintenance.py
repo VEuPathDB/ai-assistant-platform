@@ -26,7 +26,7 @@ from assistant_core.platform.logging import get_logger
 from assistant_core.tasks.app import task_app
 from assistant_core.tasks.chat_turn import ChatTurnJobArgs
 from assistant_core.tasks.names import CHAT_TURN_TASK, is_durable_job_name
-from assistant_core.tasks.payloads import DurableTaskPayload
+from assistant_core.tasks.payloads import StalledDurableTask
 from assistant_core.tasks.runner import settle_unfinished_task
 
 logger = get_logger(__name__)
@@ -163,7 +163,7 @@ async def _settle_released_work(job: Job, error_text: str) -> None:
 async def _settle_stalled_task(job: Job, error_text: str) -> None:
     """Report the durable task a killed worker left in flight."""
     try:
-        payload = DurableTaskPayload.model_validate(job.task_kwargs)
+        payload = StalledDurableTask.model_validate(job.task_kwargs)
     except ValidationError:
         logger.warning(
             "Stalled durable task carries no readable payload", job_id=job.id
@@ -173,6 +173,7 @@ async def _settle_stalled_task(job: Job, error_text: str) -> None:
         task_id=payload.task_id,
         conversation_id=payload.thread_id,
         error=error_text,
+        job_context=payload.job_context,
     )
 
 

@@ -49,4 +49,18 @@ class DurableTaskPayload(BaseModel):
         )
 
 
-__all__ = ["DurableTaskPayload"]
+class StalledDurableTask(BaseModel):
+    """A durable job's payload as the stalled-job sweep reads it back.
+
+    The carried state stays JSON here, because the host's own state type is
+    the only model that validates it without dropping its fields.
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    task_id: UUID
+    thread_id: UUID
+    job_context: JSONObject = Field(default_factory=dict)
+
+
+__all__ = ["DurableTaskPayload", "StalledDurableTask"]

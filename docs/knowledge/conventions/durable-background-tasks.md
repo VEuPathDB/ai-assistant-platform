@@ -128,6 +128,14 @@ and whose `restore(state)` puts it back around the body. The state masks its
 credentials in a `repr`, and the body reads one with `get_secret_value()` at
 the point of use.
 
+**The turn that answers the call runs under the same carried state as the
+body.** `_answer_and_settle` restores it around the completion turn on every
+path that opens one: the body's result, the body's failure, and a settlement
+the stalled-job sweep makes, which reads the state back off the job's stored
+payload through `StalledDurableTask`. Every tool of that turn therefore reads
+what the deferring call carried, and a durable call the turn makes captures the
+same state again. One job enters `restore` twice, once for each scope.
+
 The queue stores the payload as JSON, so the value crosses it in clear.
 `register_durable_jobs` therefore calls `install_job_payload_redaction()`,
 which scrubs every `job_context` value out of procrastinate's own log lines. A

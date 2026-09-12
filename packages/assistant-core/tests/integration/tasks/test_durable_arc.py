@@ -9,6 +9,8 @@ import procrastinate
 from procrastinate.testing import InMemoryConnector
 from sqlalchemy import select
 from tests.integration.tasks.conftest import (
+    AGAIN_PROMPT,
+    CARRIED_TOKEN,
     CRUNCH_CALL_ID,
     CRUNCH_SECONDS,
     HOST_DURABLE_QUEUE,
@@ -25,6 +27,10 @@ from assistant_core.persistence.repositories.background_tasks import (
     BackgroundTaskRepository,
 )
 from assistant_core.platform.db import async_session_factory
+from assistant_core.tasks.completion_turn import (
+    CompletionTurn,
+    install_completion_turn,
+)
 from assistant_core.tasks.declaration import empty_durable_tools
 
 
@@ -217,11 +223,15 @@ async def test_the_host_state_the_call_captured_is_restored_around_the_body(
     del carried_job_context
     await durable_runtime.run(ONE_PROMPT)
     job = _deferred(task_queue)[0]
-    assert job["args"]["job_context"] == {"token": "carried-token"}
+    assert job["args"]["job_context"] == {"token": CARRIED_TOKEN}
 
     await _run_deferred(task_queue, job)
 
-    assert worker_runs.restored == [{"token": "carried-token"}]
+    # The body, and then the turn that answers its call.
+    assert worker_runs.restored == [
+        {"token": CARRIED_TOKEN},
+        {"token": CARRIED_TOKEN},
+    ]
 
 
 async def test_two_calls_of_one_step_wait_for_the_last_task_to_report(
@@ -271,3 +281,66 @@ async def test_the_parked_step_carries_one_call_per_deferred_tool(
         "sift",
     ]
     assert len({call.task_id for call in parked.durable_calls}) == 2
+
+
+async def test_a_completion_turn_defers_under_the_state_the_first_call_carried(
+    durable_runtime: DurableRuntime,
+    task_queue: procrastinate.App,
+    carried_job_context: CarriedJobContext,
+) -> None:
+    """A durable call a completion turn makes carries what the parked call carried."""
+    await durable_runtime.run(AGAIN_PROMPT)
+
+    with carried_job_context.a_fresh_worker():
+        await _run_deferred(task_queue, _deferred(task_queue)[0])
+
+    deferred = _deferred(task_queue)
+    assert [job["task_name"] for job in deferred] == [
+        "durable:crunch",
+        "durable:crunch",
+    ]
+    assert deferred[1]["args"]["job_context"] == {"token": CARRIED_TOKEN}
+
+
+async def test_the_completion_turn_runs_under_the_state_the_call_carried(
+    durable_runtime: DurableRuntime,
+    task_queue: procrastinate.App,
+    carried_job_context: CarriedJobContext,
+) -> None:
+    """Every tool of the turn that answers a call reads what the call carried."""
+    seen: list[str] = []
+
+    async def answer(turn: CompletionTurn) -> None:
+        seen.append(carried_job_context.capture().token)
+        await durable_runtime.answer(turn)
+
+    install_completion_turn(answer)
+    await durable_runtime.run(ONE_PROMPT)
+
+    with carried_job_context.a_fresh_worker():
+        await _run_deferred(task_queue, _deferred(task_queue)[0])
+
+    assert seen == [CARRIED_TOKEN]
+
+
+async def test_the_turn_that_answers_a_failed_body_carries_the_state_too(
+    durable_runtime: DurableRuntime,
+    task_queue: procrastinate.App,
+    worker_runs: WorkerRuns,
+    carried_job_context: CarriedJobContext,
+) -> None:
+    """A body that raised is reported by a turn with the same state restored."""
+    worker_runs.fail_with = "the site did not answer"
+    seen: list[str] = []
+
+    async def answer(turn: CompletionTurn) -> None:
+        seen.append(carried_job_context.capture().token)
+        await durable_runtime.answer(turn)
+
+    install_completion_turn(answer)
+    await durable_runtime.run(ONE_PROMPT)
+
+    with carried_job_context.a_fresh_worker():
+        await _run_deferred(task_queue, _deferred(task_queue)[0])
+
+    assert seen == [CARRIED_TOKEN]
