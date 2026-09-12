@@ -26,6 +26,29 @@ row that recorded a result announces `data-task-completed` and delivers it, and
 an open row that recorded nothing fails with the reason. Every step of a
 settlement before the job is released is safe to run twice.
 
+A memory kind can be listed instead of ranked by similarity.
+`retrieve_relevant_memories` takes one `RetrievalScope`, the five values a
+caller states together: `kinds`, `always_kinds`, `keep`, `top_k` and
+`always_top_k`. A kind named in `always_kinds` is listed and not searched: the
+newest `always_top_k` of it that the scope admits come first, and the
+similarity ranking over the remaining kinds follows with its own `top_k`
+slots, so a listed kind never crowds the ranking out and neither half falls
+back on the store's own row limit. A kind named in both sequences is listed
+once. A standing preference is short and rarely resembles the request that
+should apply it, so ranking it by similarity dropped it below the kinds that
+do; listing its kind does not.
+
+A tool has a per-run call budget, not only a repeated-arguments rule.
+`ToolRepetitionGuard` takes `call_caps`, a tool name mapped onto the most
+calls one run may make to it whatever the arguments. The call past the cap is
+refused with a message naming the tool and the count and asking for a report
+of what the tool has returned so far, and the second call past the cap ends
+the run through `stopped_call_id`, as the identical-arguments escalation does.
+The count is a budget and no intervening call resets it. `CALL_CAP_MARKER`
+opens that refusal and `REPETITION_MARKER` the other, so a captured run tells
+the two apart. Before this, a run could read one tool without bound as long as
+it retyped its arguments. `assistant-core` is 0.3.0a10.
+
 The stalled-job sweep settles a durable task, not only a chat turn.
 `release_stalled_jobs` releases every job no live worker holds, and it now
 reports the released `durable:<tool>` job through the door the worker's own

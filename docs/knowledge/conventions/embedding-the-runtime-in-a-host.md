@@ -1,7 +1,7 @@
 ---
 type: Convention
 title: Embedding the runtime in a host
-description: The three endpoints PROTOCOL.md specifies, the runtime call each one makes, the order a chat handler runs, the installs a worker makes before its first job, and the errors a host maps onto status codes.
+description: The three endpoints PROTOCOL.md specifies, the runtime call each one makes, the order a chat handler runs, the installs a worker makes before its first job, the vocabularies the host bounds a turn with, and the errors a host maps onto status codes.
 tags: [assistant-core, protocol, host-integration]
 generated: { by: claude-code/opus-5, at: 2026-09-11T00:00:00Z }
 status: stable
@@ -111,6 +111,40 @@ The turn's own driver is the host's: it reads the spec's `turn_prologue`
 before the graph, its `turn_cancel` on a turn the user stopped, and its
 `turn_epilogue` after the graph, and it writes every chunk through a
 `ChatWriter`.
+
+# What the host bounds
+
+Two rules read a vocabulary the host writes, because the names are the
+product's and the runtime knows none of them.
+
+`capabilities.repetition_guard.ToolRepetitionGuard` holds both, one guard per
+turn on the agent's deps, run before every tool call by the capability
+`capabilities.repetition_guard.RepetitionGuard`.
+
+| Vocabulary | The rule it drives |
+| --- | --- |
+| `read_only_tools` | The `threshold`-th consecutive call with identical arguments is refused. An intervening call clears the streak. |
+| `call_caps` | The call past a tool's cap is refused, whatever the arguments. The count is a per-run budget: no intervening call resets it. |
+
+Both refusals are the tool's own result and never a `ModelRetry`, so a tool
+that already retried keeps its retry budget. The second refusal of either rule
+names its call in `stopped_call_id`, and the turn ends once that call's result
+has reached the client. `REPETITION_MARKER` opens the first refusal and
+`CALL_CAP_MARKER` the second, so a reader of a captured run tells the two
+apart.
+
+`memory.retrieval.retrieve_relevant_memories` takes one
+`memory.retrieval.RetrievalScope`, the five values a caller states together:
+the `kinds` a request ranks by similarity, the `always_kinds` listed whatever
+the request, the `keep` predicate that says which memories are in scope,
+`top_k` for the ranking and `always_top_k` for the listing. A listed kind is
+read with `list_all` and not searched, and the newest `always_top_k` of it
+come before the ranking, which keeps its own `top_k` slots, so an answer holds
+at most the two budgets added together. A kind named in both sequences is
+listed once. That is how a standing preference reaches a turn whose request
+does not resemble it. A host that arrives from an older version passes the
+scope where it passed those values one by one, and a test that reads the
+signature by name reads `scope`.
 
 # The refusals
 

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import math
 from collections.abc import Callable, Sequence
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from uuid import UUID
 
@@ -67,40 +68,90 @@ def _clamp_semantic(score: float | None) -> float:
     return score
 
 
+@dataclass(frozen=True, kw_only=True)
+class RetrievalScope:
+    """What one turn reads from memory.
+
+    ``kinds`` are ranked by similarity to the request. ``always_kinds`` are
+    listed instead, for a kind whose value does not depend on the request,
+    such as a standing preference. A kind named in both is listed once.
+    ``keep`` is the caller's scope rule, such as the data host a memory
+    belongs to; a caller that supplies none ranks every candidate. ``top_k``
+    bounds the ranking and ``always_top_k`` the listing, so an answer holds at
+    most the two added together.
+
+    The five are one argument because the caller states all of them together.
+    """
+
+    kinds: Sequence[str]
+    always_kinds: Sequence[str] = ()
+    keep: Callable[[MemoryValue], bool] | None = None
+    top_k: int = 8
+    always_top_k: int = 8
+
+    def admits(self, memory: MemoryValue) -> bool:
+        if not memory.auto_retrieve:
+            return False
+        return self.keep is None or self.keep(memory)
+
+
+def _recency_key(stored: StoredMemory) -> datetime:
+    return stored.value.last_used_at or stored.value.created_at
+
+
+async def _listed_memories(
+    *,
+    store: MemoryStore,
+    user_id: UUID,
+    scope: RetrievalScope,
+) -> list[StoredMemory]:
+    """The always-kinds the scope admits, newest first, inside their budget."""
+    found: list[StoredMemory] = []
+    for kind in dict.fromkeys(scope.always_kinds):
+        listed = await store.list_all(
+            user_id=user_id,
+            kind=kind,
+            limit=scope.always_top_k,
+        )
+        found.extend(stored for stored in listed if scope.admits(stored.value))
+    found.sort(key=_recency_key, reverse=True)
+    return found[: scope.always_top_k]
+
+
 async def retrieve_relevant_memories(
     *,
     store: MemoryStore,
     user_id: UUID,
     query: str,
-    kinds: Sequence[str],
-    keep: Callable[[MemoryValue], bool] | None = None,
-    top_k: int = 8,
+    scope: RetrievalScope,
 ) -> list[StoredMemory]:
-    """Search every auto-retrieve-enabled namespace, rerank by hybrid score.
+    """The listed kinds, then the similarity ranking over the rest.
 
-    Each namespace is queried for up to ``top_k // 2`` hits; candidates the
-    writer marked ``auto_retrieve`` and ``keep`` accepts are scored via
-    :func:`hybrid_score` using the HNSW cosine similarity as the ``semantic``
-    signal. Returns the global top ``top_k`` as :class:`StoredMemory`
-    (carrying ``key`` + ``score`` for display); call ``.value`` for the bare
-    :class:`MemoryValue`. ``keep`` is the caller's scope rule, such as the data
-    host a memory belongs to; a caller that supplies none ranks every
-    candidate.
+    A ranked namespace is queried for up to ``top_k // 2`` hits; candidates
+    the scope admits are scored via :func:`hybrid_score` using the HNSW cosine
+    similarity as the ``semantic`` signal. The answer is the newest
+    ``always_top_k`` of the listed kinds followed by the global top ``top_k``,
+    deduplicated by key, as :class:`StoredMemory` (carrying ``key`` +
+    ``score`` for display); call ``.value`` for the bare
+    :class:`MemoryValue`.
     """
-    per_kind = max(1, top_k // 2)
+    always = await _listed_memories(store=store, user_id=user_id, scope=scope)
+    seen = {stored.key for stored in always}
+    per_kind = max(1, scope.top_k // 2)
     all_hits: list[StoredMemory] = []
-    for kind in kinds:
+    for kind in scope.kinds:
+        if kind in scope.always_kinds:
+            continue
         hits = await store.semantic_search(
             user_id=user_id,
             kind=kind,
             query=query,
             top_k=per_kind,
         )
-        for stored in hits:
-            if not stored.value.auto_retrieve:
-                continue
-            if keep is not None and not keep(stored.value):
-                continue
-            all_hits.append(stored)
-    reranked = rerank_by_hybrid_score(all_hits)
-    return reranked[:top_k]
+        all_hits.extend(
+            stored
+            for stored in hits
+            if stored.key not in seen and scope.admits(stored.value)
+        )
+    ranked = rerank_by_hybrid_score(all_hits)[: scope.top_k]
+    return always + ranked

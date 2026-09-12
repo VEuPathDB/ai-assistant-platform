@@ -19,7 +19,10 @@ from uuid import uuid4
 import pytest
 
 from assistant_core.memory.lifespan import lifespan_memory_store
-from assistant_core.memory.retrieval import retrieve_relevant_memories
+from assistant_core.memory.retrieval import (
+    RetrievalScope,
+    retrieve_relevant_memories,
+)
 from assistant_core.memory.schemas import MemoryValue
 from assistant_core.memory.store import MemoryStore
 
@@ -70,9 +73,11 @@ async def test_retrieval_applies_the_callers_scope_rule(
             store=store,
             user_id=user_id,
             query="measured counts note",
-            kinds=DECLARED_KINDS,
-            keep=lambda memory: memory.site_id in (None, "site-a"),
-            top_k=8,
+            scope=RetrievalScope(
+                kinds=DECLARED_KINDS,
+                keep=lambda memory: memory.site_id in (None, "site-a"),
+                top_k=8,
+            ),
         )
         names = {m.value.name for m in results}
         assert "here-note" in names, "an in-scope memory must be retrieved"
@@ -104,8 +109,7 @@ async def test_retrieval_withholds_auto_retrieve_false(
             store=store,
             user_id=user_id,
             query="measured counts note",
-            kinds=DECLARED_KINDS,
-            top_k=8,
+            scope=RetrievalScope(kinds=DECLARED_KINDS, top_k=8),
         )
         names = {m.value.name for m in results}
         assert "auto-on" in names

@@ -6,6 +6,7 @@ from uuid import UUID, uuid4
 import pytest
 
 from assistant_core.memory.retrieval import (
+    RetrievalScope,
     hybrid_score,
     rerank_by_hybrid_score,
     retrieve_relevant_memories,
@@ -126,6 +127,17 @@ class _HitsByKind:
         del user_id, query, top_k
         return self.hits.get(kind, [])
 
+    async def list_all(
+        self,
+        *,
+        user_id: UUID,
+        kind: str,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> list[StoredMemory]:
+        del user_id
+        return self.hits.get(kind, [])[offset : offset + limit]
+
 
 def _hit(key: str, *, site_id: str | None, auto_retrieve: bool = True) -> StoredMemory:
     value = MemoryValue(
@@ -152,8 +164,10 @@ async def test_retrieval_keeps_every_candidate_the_host_allows() -> None:
         store=store,
         user_id=uuid4(),
         query="q",
-        kinds=("note",),
-        keep=lambda memory: memory.site_id == "a",
+        scope=RetrievalScope(
+            kinds=("note",),
+            keep=lambda memory: memory.site_id == "a",
+        ),
     )
 
     assert [hit.key for hit in ranked] == ["here"]
@@ -169,7 +183,7 @@ async def test_retrieval_without_a_predicate_ranks_every_candidate() -> None:
         store=store,
         user_id=uuid4(),
         query="q",
-        kinds=("note",),
+        scope=RetrievalScope(kinds=("note",)),
     )
 
     assert {hit.key for hit in ranked} == {"here", "elsewhere"}
@@ -183,7 +197,165 @@ async def test_retrieval_withholds_what_the_writer_marked_not_auto_retrieve() ->
         store=store,
         user_id=uuid4(),
         query="q",
-        kinds=("note",),
+        scope=RetrievalScope(kinds=("note",)),
     )
 
     assert ranked == []
+
+
+def _kind_hit(
+    key: str,
+    *,
+    kind: str,
+    score: float,
+    last_used_days_ago: float = 1.0,
+    auto_retrieve: bool = True,
+) -> StoredMemory:
+    value = MemoryValue(
+        kind=kind,
+        name=key,
+        summary="y",
+        tags=[],
+        content={},
+        auto_retrieve=auto_retrieve,
+        created_at=datetime.now(UTC),
+        last_used_at=datetime.now(UTC) - timedelta(days=last_used_days_ago),
+    )
+    return StoredMemory(key=key, value=value, score=score)
+
+
+def _one_preference_among_twelve_cases() -> _HitsByKind:
+    return _HitsByKind(
+        {
+            "preference": [_kind_hit("pref", kind="preference", score=0.1)],
+            "case": [_kind_hit(f"case{n}", kind="case", score=0.9) for n in range(12)],
+        }
+    )
+
+
+@pytest.mark.asyncio
+async def test_a_listed_kind_comes_before_the_ranking() -> None:
+    ranked = await retrieve_relevant_memories(
+        store=_one_preference_among_twelve_cases(),
+        user_id=uuid4(),
+        query="q",
+        scope=RetrievalScope(
+            kinds=("preference", "case"),
+            always_kinds=("preference",),
+        ),
+    )
+
+    assert ranked[0].key == "pref"
+    assert [hit.key for hit in ranked].count("pref") == 1
+
+
+@pytest.mark.asyncio
+async def test_without_an_always_kind_the_weak_preference_never_ranks() -> None:
+    ranked = await retrieve_relevant_memories(
+        store=_one_preference_among_twelve_cases(),
+        user_id=uuid4(),
+        query="q",
+        scope=RetrievalScope(kinds=("preference", "case")),
+    )
+
+    assert "pref" not in [hit.key for hit in ranked]
+
+
+@pytest.mark.asyncio
+async def test_a_listed_kind_does_not_crowd_out_the_ranking() -> None:
+    ranked = await retrieve_relevant_memories(
+        store=_one_preference_among_twelve_cases(),
+        user_id=uuid4(),
+        query="q",
+        scope=RetrievalScope(
+            kinds=("preference", "case"),
+            always_kinds=("preference",),
+        ),
+    )
+
+    assert len(ranked) == 9
+    assert len([hit for hit in ranked if hit.value.kind == "case"]) == 8
+
+
+@pytest.mark.asyncio
+async def test_the_kinds_read_in_full_come_newest_first() -> None:
+    store = _HitsByKind(
+        {
+            "preference": [
+                _kind_hit("older", kind="preference", score=0.1, last_used_days_ago=9),
+                _kind_hit("newer", kind="preference", score=0.1, last_used_days_ago=1),
+            ]
+        }
+    )
+
+    ranked = await retrieve_relevant_memories(
+        store=store,
+        user_id=uuid4(),
+        query="q",
+        scope=RetrievalScope(kinds=(), always_kinds=("preference",)),
+    )
+
+    assert [hit.key for hit in ranked] == ["newer", "older"]
+
+
+@pytest.mark.asyncio
+async def test_a_listed_kind_still_answers_to_the_hosts_scope() -> None:
+    store = _HitsByKind(
+        {
+            "preference": [
+                _kind_hit("held", kind="preference", score=0.1, auto_retrieve=False),
+                _kind_hit("shown", kind="preference", score=0.1),
+            ]
+        }
+    )
+
+    ranked = await retrieve_relevant_memories(
+        store=store,
+        user_id=uuid4(),
+        query="q",
+        scope=RetrievalScope(
+            kinds=(),
+            always_kinds=("preference",),
+            keep=lambda memory: memory.name == "shown",
+        ),
+    )
+
+    assert [hit.key for hit in ranked] == ["shown"]
+
+
+@pytest.mark.asyncio
+async def test_a_listed_kind_stops_at_its_budget() -> None:
+    store = _HitsByKind(
+        {
+            "preference": [
+                _kind_hit(f"pref{n}", kind="preference", score=0.1) for n in range(12)
+            ]
+        }
+    )
+
+    ranked = await retrieve_relevant_memories(
+        store=store,
+        user_id=uuid4(),
+        query="q",
+        scope=RetrievalScope(
+            kinds=(),
+            always_kinds=("preference",),
+            always_top_k=3,
+        ),
+    )
+
+    assert len(ranked) == 3
+
+
+@pytest.mark.asyncio
+async def test_a_kind_named_twice_is_listed_once() -> None:
+    store = _HitsByKind({"preference": [_kind_hit("p1", kind="preference", score=0.1)]})
+
+    ranked = await retrieve_relevant_memories(
+        store=store,
+        user_id=uuid4(),
+        query="q",
+        scope=RetrievalScope(kinds=(), always_kinds=("preference", "preference")),
+    )
+
+    assert [hit.key for hit in ranked] == ["p1"]
