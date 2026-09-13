@@ -29,11 +29,6 @@ boundary, not a linter rule about it. `ruff` and the tests cover `tests/` too,
 because the synthetic assistant lives there and is the runtime's reference
 producer.
 
-`uv sync --frozen` installs the `screening` extra, because the dev group names
-it: the boundary suite imports every module and
-`assistant_core.capabilities.piguard` reads the ONNX runtime. A host that
-screens no input declares `assistant-core` without the extra.
-
 `pytest` needs a Postgres. It starts a `pgvector/pgvector:pg16` testcontainer
 unless `DATABASE_URL` names one, and the conversation suite drives real
 LISTEN/NOTIFY, so an in-memory substitute will not do.

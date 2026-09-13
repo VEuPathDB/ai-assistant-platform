@@ -10,14 +10,6 @@ science.
 | `packages/assistant-client-ts/` | `@veupathdb/assistant-client` | - |
 | `packages/mcp-conformance/` | `veupathdb-mcp-conformance` | `mcp_conformance` |
 
-## The `screening` extra
-
-`assistant-core[screening]` adds the ONNX runtime and the tokenizer that
-`assistant_core.capabilities.input_screening` needs. A host that screens user
-text before an agent reads it declares the extra and tells the scanner which
-directory holds the model; an assistant that screens nothing declares plain
-`assistant-core` and carries neither wheel.
-
 ## One Yarn project, one lock
 
 This folder is its own Yarn project: `package.json` declares

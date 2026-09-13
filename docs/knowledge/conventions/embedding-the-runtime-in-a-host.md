@@ -54,8 +54,16 @@ this order.
    refuses the turn the way `AssistantMismatchError` is refused.
 4. **Stop the turn in flight.** `conversation.cancellation.cancel_in_flight_turn`.
 5. **Screen the user's text**, when the deployment screens it:
-   `capabilities.input_screening.UserInputScanner`, whose refusal is
-   `ScreeningRejectionError`.
+   `capabilities.input_screening.UserInputScanner(judge=...)`, whose refusal is
+   `ScreeningRejectionError`. The judge is
+   `capabilities.injection_judge.ModelInjectionJudge(model=..., context=...,
+   timeout_seconds=...)`: the host names the model and writes the paragraph
+   that says what a normal message looks like in its product, the runtime
+   states what an injection is, and the call is bounded by a default timeout
+   the host may replace. The same judge screens a tool source's result through
+   `capabilities.tool_result_screen.screened_output(judge=...)`, which answers
+   the `scan` that `mcp.resolution.ResolvedToolSources` takes; that path reads
+   a long result in windows and withholds one too long for its window budget.
 6. **Append the user's message.**
    `persistence.repositories.message.MessagesRepository.insert_message` writes
    the turn's metadata row, and
@@ -157,7 +165,7 @@ No error here names an HTTP status. A host maps them.
 | `errors.TurnStillRunningError` | The worker did not close the turn inside the stop window |
 | `registry.UnknownAssistantError` | The request names an assistant this deployment does not serve |
 | `registry.AssistantMismatchError` | The request names an assistant other than the thread's |
-| `capabilities.input_screening.ScreeningRejectionError` | The screener refused the user's text |
+| `capabilities.input_screening.ScreeningRejectionError` | The judge or the Unicode scan refused the user's text |
 | `mcp.resolution.ToolSourceUnavailableError` | A source the assistant declared as required did not resolve |
 
 `errors.AssistantCoreError` is the base of the first three.

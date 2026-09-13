@@ -5,7 +5,7 @@ scratchpad, durable background tasks and the cost count. It knows nothing about
 any product's science, and it serves no HTTP.
 
 ```
-pip install assistant-core          # add [screening] to screen user text
+pip install assistant-core
 ```
 
 ## What an assistant declares

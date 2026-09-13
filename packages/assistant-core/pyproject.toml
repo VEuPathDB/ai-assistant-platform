@@ -1,6 +1,6 @@
 [project]
 name = "assistant-core"
-version = "0.3.0a11"
+version = "0.3.0a12"
 description = "The assistant runtime: turns, streaming, checkpoints, memory"
 requires-python = ">=3.14"
 dependencies = [
@@ -31,14 +31,6 @@ dependencies = [
     "tenacity>=9.1.4",
 ]
 
-[project.optional-dependencies]
-# Input screening runs an ONNX classifier over the user's text. An assistant
-# that screens nothing does not carry the runtime or the tokenizer.
-screening = [
-    "onnxruntime>=1.19.0",
-    "tokenizers>=0.21.0",
-]
-
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
@@ -48,8 +40,6 @@ packages = ["src/assistant_core"]
 
 [dependency-groups]
 dev = [
-    # The suite imports every module, so it installs the screening extra.
-    "assistant-core[screening]",
     # The in-process MCP server the tool-source suite runs against. The
     # client half already arrives with pydantic-ai; only the server is extra.
     "fastmcp-slim[server]>=3.3.0,<4",
@@ -67,9 +57,10 @@ asyncio_default_fixture_loop_scope = "session"
 asyncio_default_test_loop_scope = "session"
 testpaths = ["tests"]
 pythonpath = ["src", "."]
-addopts = "-m 'not live_embeddings and not wheel'"
+addopts = "-m 'not live_embeddings and not live_judge and not wheel'"
 markers = [
     "live_embeddings: one real call to the embeddings API (opt-in; run via `uv run pytest tests/live -m live_embeddings --override-ini addopts=''`)",
+    "live_judge: the injection corpus against a real model (opt-in; run via `ASSISTANT_CORE_LIVE_JUDGE_MODEL=<model> uv run pytest tests/live -m live_judge --override-ini addopts=''`)",
     "wheel: builds and installs the wheel (opt-in; run via `uv run pytest tests/packaging -m wheel --override-ini addopts=''`)",
 ]
 
@@ -106,9 +97,6 @@ max-returns = 6
 max-branches = 10
 
 [tool.ruff.lint.per-file-ignores]
-"src/assistant_core/capabilities/piguard.py" = [
-    "S106",  # pad_token="[PAD]" is tokenizer configuration, not a password
-]
 "tests/**" = [
     "S101",
     "S105",

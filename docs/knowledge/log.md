@@ -2,6 +2,27 @@
 
 ## 2026-09-13
 
+Input screening is one model judgement. `capabilities/injection_judge.py`
+states what a prompt injection is and runs an agent with no tools and no
+history over one text, clipped to 30000 characters; the host names the model
+and writes the paragraph that says what a normal message looks like in its
+product, and the verdict's confidence is the risk score the refusal carries.
+The call is bounded by a 20 second
+timeout the runtime owns, so a provider that stops answering fails the turn in
+seconds. The turn's boundary runs the Unicode scan first and the judge second,
+and `capabilities/tool_result_screen.py` puts the same judgement in front of a
+tool source's result, replacing an injected one with a fixed sentence and
+caching verdicts by the digest of the whole text in a bounded LRU. A tool
+result is read whole: it is cut into windows of 30000 characters, the windows
+are judged together, any injected window withholds the result, and a result
+that needs more than eight windows is withheld unjudged, because a boundary
+that cannot read a text does not pass it. The ONNX classifier, the `screening`
+extra, the phrase whitelist that let short affirmatives past that classifier
+and the session-exit hook the ONNX destructors needed are all gone, and so is
+the decision that recorded the hook. `tests/fixtures/injection_corpus.jsonl` is
+the 88 labelled messages, and the opt-in `live_judge` test is the acceptance
+run over them. `assistant-core` is 0.3.0a12.
+
 A durable call leaves a `background_tasks` row only for a job the queue
 accepted. The decorator writes the row first, because the worker reads it by
 the id the payload carries and marks it running at once, and it removes the
