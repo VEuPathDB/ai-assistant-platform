@@ -40,6 +40,34 @@ written after the defer returns, so a caller is told about a job that exists.
 between the row and the defer, which is
 [a pending task row the queue holds no job for](backlog/a-pending-row-the-queue-holds-no-job-for.md).
 
+Each read of the durable event tail owns its cursor, its headers and its abort
+signal. `DurableChatTransport` opens the tail itself rather than through the
+SDK's reconnect helper, so two reads on one transport no longer share one
+resume flag and one request record: a read the SDK supersedes leaves the read
+that replaced it its message filter and its chain across tail boundaries, and
+hands on no turn of its own. A chain ends where its signal has already fired,
+instead of opening a tail the fetch refuses and throwing that refusal into the
+reader, and a turn held by a read whose signal fires after the hold is dropped
+rather than adopted, because the body that carries the rest of that chain
+errors with the signal.
+
+The SDK seeds a resumed read with no message, so a resumed tail replays the
+open message whole and the prefix it repeats reaches the reader as one write; a
+read that dropped the frames the client already holds would rebuild that
+message without them. For the same reason a prefix that ends before the cursor
+the client holds is dropped rather than written: a rebuild from less than the
+client has deletes parts a page already shows. The peer range on the SDK is the
+major whose resumed read starts empty, because the range's earlier half seeds
+that read with the held message and turns the same replay into duplicated
+parts. `resumeDurableThread` keeps the rule that a thread holds each id once:
+the SDK appends a rebuilt message when the id it names is not the thread's last
+one, so the rebuild takes the place of the entry it repeats, and a turn the
+thread already opened is not opened a second time. The repeated entry stands
+until the read that rebuilt it ends, which for a parked durable task is the
+rest of that task's run, so a thread whose open message is not its last entry
+shows that message twice for as long as the read lasts.
+`@veupathdb/assistant-client` is 0.3.0-alpha.4.
+
 ## 2026-09-12
 
 The turn that answers a durable call runs under the state that call carried.

@@ -71,8 +71,8 @@ describe("the dependency-free core", () => {
     expect(manifest.dependencies).toBeUndefined();
   });
 
-  it("declares the AI SDK as an optional peer", () => {
-    expect(manifest.peerDependencies?.["ai"]).toBe(">=6.0.250 <8");
+  it("declares the AI SDK as an optional peer, from the major whose resume starts empty", () => {
+    expect(manifest.peerDependencies?.["ai"]).toBe(">=7.0.0 <8");
     expect(manifest.peerDependenciesMeta?.["ai"]?.optional).toBe(true);
   });
 

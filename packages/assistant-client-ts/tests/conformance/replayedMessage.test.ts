@@ -27,6 +27,7 @@ import {
   heldSuspendedMessage,
   logOf,
   seedSuspended,
+  sseResponse,
 } from "./durableResume.ts";
 
 const EARLIER_DONE = FIRST_CURSOR + COMPLETED_TURN.length - 1;
@@ -75,9 +76,9 @@ async function payloadsOf(body: string): Promise<string[]> {
   });
   const reader = probe
     .payloads(body, {
-      resuming: true,
       messageId: SUSPENDED,
       through: SUSPENDED_DONE,
+      hold: () => undefined,
     })
     .getReader();
   const decoder = new TextDecoder();
@@ -113,6 +114,61 @@ describe("a resume of a message the client already holds", () => {
       { type: "data-task-progress", id: TASK, data: { taskId: TASK, percent: 0.9 } },
       { type: "data-task-completed", data: { taskId: TASK, status: "success" } },
     ]);
+  });
+
+  it("holds that message once when the thread holds a message after it", async () => {
+    const continuation: UIMessage = {
+      id: RESUMED,
+      role: "assistant",
+      parts: [{ type: "text", text: "Variant B scored best.", state: "done" }],
+    };
+    const probe = harness({
+      thread: SUSPENDED_THREAD,
+      cursors: seedSuspended(memoryCursorStore(), {
+        after: SUSPENDED_START,
+        done: SUSPENDED_DONE,
+      }),
+      holds: [heldSuspendedMessage(), continuation],
+    });
+
+    await probe.resume();
+
+    expect(probe.shape()).toEqual([
+      { id: SUSPENDED, role: "assistant", parts: SUSPENDED_PARTS },
+      { id: RESUMED, role: "assistant", parts: ["text"] },
+    ]);
+  });
+
+  it("leaves that message alone where the tail stopped short of its cursor", async () => {
+    const complete: UIMessage = {
+      id: SUSPENDED,
+      role: "assistant",
+      parts: [
+        {
+          type: "data-background-task-started",
+          data: { taskId: TASK, toolName: "add" },
+        },
+        { type: "data-task-progress", id: TASK, data: { taskId: TASK, percent: 0.9 } },
+        { type: "data-task-completed", data: { taskId: TASK, status: "success" } },
+      ],
+    };
+    const continuation: UIMessage = {
+      id: RESUMED,
+      role: "assistant",
+      parts: [{ type: "text", text: "Variant B scored best.", state: "done" }],
+    };
+    const probe = harness({
+      cursors: seedSuspended(memoryCursorStore(), {
+        after: SUSPENDED_START,
+        done: SUSPENDED_DONE,
+      }),
+      holds: [complete, continuation],
+      respond: () => sseResponse(bodyOf(SUSPENDED_THREAD.slice(0, 2))),
+    });
+
+    await probe.resume();
+
+    expect(probe.chat.messages).toEqual([complete, continuation]);
   });
 
   it("hands the prefix it replays to the SDK as one write", async () => {

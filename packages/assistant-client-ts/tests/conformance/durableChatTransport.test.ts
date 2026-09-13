@@ -16,35 +16,37 @@ class ProbeTransport extends DurableChatTransport<UIMessage> {
     });
     return this.processResponseStream(stream);
   }
-
-  async reconnectUrl(): Promise<string> {
-    const prepare = this.prepareReconnectToStreamRequest;
-    if (prepare === undefined) throw new Error("no reconnect preparation");
-    const request = await prepare({
-      id: "c1",
-      api: "/api/v1/chat",
-      requestMetadata: undefined,
-      body: undefined,
-      credentials: undefined,
-      headers: undefined,
-    });
-    if (request.api === undefined) throw new Error("no reconnect url");
-    return request.api;
-  }
 }
 
 function probe(
-  options: { cursors?: CursorStore; onUnhandledChunk?: (chunk: unknown) => void } = {},
+  options: {
+    cursors?: CursorStore;
+    onUnhandledChunk?: (chunk: unknown) => void;
+    urls?: string[];
+  } = {},
 ) {
   return new ProbeTransport({
     api: "/api/v1/chat",
     conversationId: "c1",
     eventsUrlFor: (id) => `/api/v1/conversations/${id}/events`,
     cursors: options.cursors ?? memoryCursorStore(),
+    fetch: (input) => {
+      options.urls?.push(input instanceof Request ? input.url : String(input));
+      return Promise.resolve(new Response(null, { status: 204 }));
+    },
     ...(options.onUnhandledChunk === undefined
       ? {}
       : { onUnhandledChunk: options.onUnhandledChunk }),
   });
+}
+
+/** The tail one reconnect asks for, on a thread the host says is idle. */
+async function reconnectUrl(cursors: CursorStore): Promise<string> {
+  const urls: string[] = [];
+  await probe({ cursors, urls }).reconnectToStream({ chatId: "c1" });
+  const url = urls[0];
+  if (url === undefined) throw new Error("no reconnect url");
+  return url;
 }
 
 async function chunksOf(
@@ -141,7 +143,7 @@ describe("the transport resumes where it left off", () => {
       { cursors },
     );
 
-    expect(await probe({ cursors }).reconnectUrl()).toBe(
+    expect(await reconnectUrl(cursors)).toBe(
       "/api/v1/conversations/c1/events?after=14",
     );
   });
@@ -153,17 +155,13 @@ describe("the transport resumes where it left off", () => {
       { cursors },
     );
 
-    expect(await probe({ cursors }).reconnectUrl()).toBe(
-      "/api/v1/conversations/c1/events?after=0",
-    );
+    expect(await reconnectUrl(cursors)).toBe("/api/v1/conversations/c1/events?after=0");
   });
 
   it("reconnects from the whole thread when it has seen no turn end", async () => {
     const cursors = memoryCursorStore();
     await chunksOf(frameText(9, START), { cursors });
 
-    expect(await probe({ cursors }).reconnectUrl()).toBe(
-      "/api/v1/conversations/c1/events?after=0",
-    );
+    expect(await reconnectUrl(cursors)).toBe("/api/v1/conversations/c1/events?after=0");
   });
 });

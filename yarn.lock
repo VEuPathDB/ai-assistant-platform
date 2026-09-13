@@ -504,7 +504,7 @@ __metadata:
     vitest: "npm:4.1.11"
     zod: "npm:4.5.4"
   peerDependencies:
-    ai: ">=6.0.250 <8"
+    ai: ">=7.0.0 <8"
   peerDependenciesMeta:
     ai:
       optional: true
