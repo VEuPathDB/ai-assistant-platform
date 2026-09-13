@@ -1,5 +1,24 @@
 # Log
 
+## 2026-09-13
+
+A durable call leaves a `background_tasks` row only for a job the queue
+accepted. The decorator writes the row first, because the worker reads it by
+the id the payload carries and marks it running at once, and it removes the
+row through `discard_background_task` when the defer raises or is cancelled,
+under `asyncio.shield`, so nothing is deferred and nothing is left behind.
+Before this, a refused defer left a `pending` row no worker held and no sweep
+settled, because the sweep releases jobs and that row has none, and
+`has_active_task` answered `True` for that thread for good. The removal is a
+`DELETE` on a `pending` row only, since a row that ran owns chunks and
+progress rows that name it with `ondelete="CASCADE"`, and a removal that fails
+rides the queue's own error as a note rather than replacing it. The
+`DurableDeferral` and the `data-background-task-started` chunk are still
+written after the defer returns, so a caller is told about a job that exists.
+`assistant-core` is 0.3.0a11. What this does not reach is a process that stops
+between the row and the defer, which is
+[a pending task row the queue holds no job for](backlog/a-pending-row-the-queue-holds-no-job-for.md).
+
 ## 2026-09-12
 
 The turn that answers a durable call runs under the state that call carried.

@@ -65,4 +65,14 @@ async def create_background_task(
     )
 
 
-__all__ = ["create_background_task", "has_active_task"]
+async def discard_background_task(*, task_id: UUID) -> None:
+    """Remove the row of a call whose job the queue did not accept."""
+    repo = BackgroundTaskRepository(session_factory=async_session_factory)
+    await repo.delete(task_id=task_id)
+
+
+__all__ = [
+    "create_background_task",
+    "discard_background_task",
+    "has_active_task",
+]

@@ -158,6 +158,33 @@ async def test_asking_about_no_tasks_reads_nothing(
     assert await repo.reported_outcomes(task_ids=[]) == {}
 
 
+async def test_a_discarded_task_leaves_the_threads_other_rows_alone(
+    thread: tuple[UUID, UUID],
+) -> None:
+    repo = BackgroundTaskRepository(session_factory=async_session_factory)
+    discarded = await repo.create(task=_new_task(thread, "crunch"))
+    kept = await repo.create(task=_new_task(thread, "sift"))
+
+    await repo.delete(task_id=discarded)
+
+    assert await repo.get(task_id=discarded) is None
+    assert await repo.get(task_id=kept) is not None
+
+
+async def test_a_task_that_already_started_is_not_discarded(
+    thread: tuple[UUID, UUID],
+) -> None:
+    repo = BackgroundTaskRepository(session_factory=async_session_factory)
+    task_id = await repo.create(task=_new_task(thread, "crunch"))
+    await repo.mark_running(task_id=task_id)
+
+    await repo.delete(task_id=task_id)
+
+    row = await repo.get(task_id=task_id)
+    assert row is not None
+    assert row.status == "running"
+
+
 async def test_a_task_id_nobody_wrote_reads_as_nothing(
     thread: tuple[UUID, UUID],
 ) -> None:

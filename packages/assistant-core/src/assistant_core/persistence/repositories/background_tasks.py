@@ -12,7 +12,7 @@ from typing import Any
 from uuid import UUID, uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
-from sqlalchemy import select, text, update
+from sqlalchemy import delete, select, text, update
 
 from assistant_core.persistence.models import BackgroundTask
 from assistant_core.platform.db import DBSessionFactory
@@ -86,6 +86,21 @@ class BackgroundTaskRepository:
             )
             await session.commit()
         return task_id
+
+    async def delete(self, *, task_id: UUID) -> None:
+        """Remove a task row the queue never accepted a job for.
+
+        A row past ``pending`` stays: its chunks and its progress rows point at
+        it with ``ondelete="CASCADE"``.
+        """
+        async with self._session_factory() as session:
+            await session.execute(
+                delete(BackgroundTask).where(
+                    BackgroundTask.id == task_id,
+                    BackgroundTask.status == "pending",
+                )
+            )
+            await session.commit()
 
     async def get(self, *, task_id: UUID) -> BackgroundTask | None:
         async with self._session_factory() as session:

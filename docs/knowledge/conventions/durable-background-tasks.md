@@ -16,6 +16,15 @@ decorated with `durable_tool(tool)`. At call time the decorator writes a
 answers, defers a job onto the host's queue, records a `DurableDeferral` on the
 agent's deps, emits `data-background-task-started` and raises `CallDeferred`.
 
+The row is written before the defer, because the worker reads the row by the
+id the payload carries. A defer that raises or is cancelled therefore removes
+the row again through `discard_background_task`, shielded from the
+cancellation, and the deferral and the chunk are written after the defer
+returns: a refused defer leaves no row, no deferral and no announcement, and
+the queue's own error reaches the model, carrying a note when the removal
+failed too. The removal reads a `pending` row only: a row the worker started
+owns the chunks and the progress rows that name it.
+
 The run ends with `DeferredToolRequests`. The graph node parks a
 `PendingDurableCall` on the state beside `pending_approval`, and the turn
 closes with `finishReason: "other"`. There is no `interrupt()` and no node

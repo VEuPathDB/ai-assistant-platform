@@ -7,6 +7,7 @@ the worker's completion opens a new turn carrying the result.
 
 from __future__ import annotations
 
+from asyncio import shield
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from functools import wraps
@@ -24,13 +25,17 @@ from pydantic import (
 )
 from pydantic_ai.exceptions import CallDeferred
 from pydantic_ai.tools import RunContext
+from sqlalchemy.exc import SQLAlchemyError
 
 from assistant_core.graph.stream_events import background_task_started_event
 from assistant_core.graph.turn_state import DurableDeferral
 from assistant_core.tasks.app import durable_task_queue, task_app
 from assistant_core.tasks.declaration import DurableTool, require_declared
 from assistant_core.tasks.payloads import DurableTaskPayload
-from assistant_core.tasks.service import create_background_task
+from assistant_core.tasks.service import (
+    create_background_task,
+    discard_background_task,
+)
 
 P = ParamSpec("P")
 R = TypeVar("R")
@@ -108,9 +113,13 @@ def durable_tool(
                 thread_id=deps.conversation_id,
                 args=tool_args,
             )
-            await job.defer_async(
-                **dispatched_payload.model_dump(mode="json", by_alias=True),
-            )
+            try:
+                await job.defer_async(
+                    **dispatched_payload.model_dump(mode="json", by_alias=True),
+                )
+            except BaseException as refusal:
+                await _discard(task_id, refusal)
+                raise
             call.ctx.deps.durable_deferrals[call.tool_call_id] = DurableDeferral(
                 task_id=task_id,
                 tool_name=tool.tool_name,
@@ -130,6 +139,18 @@ def durable_tool(
         return wrapper
 
     return decorator
+
+
+async def _discard(task_id: UUID, refusal: BaseException) -> None:
+    """Remove the row of a call the queue did not take the job for.
+
+    The removal is shielded, so a cancelled defer strands nothing, and a
+    removal that fails rides the refusal instead of replacing it.
+    """
+    try:
+        await shield(discard_background_task(task_id=task_id))
+    except (OSError, SQLAlchemyError) as failure:
+        refusal.add_note(f"the durable task row was not removed: {failure}")
 
 
 @dataclass(frozen=True)
