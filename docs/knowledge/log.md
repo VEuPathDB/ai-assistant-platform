@@ -1,5 +1,25 @@
 # Log
 
+## 2026-09-18
+
+A turn's memory retrieval issues one search per ranked kind at once.
+`memory/retrieval.py::retrieve_relevant_memories` reads the listed kinds first
+and then gathers the searches, so the turn waits for the slowest ranked
+namespace instead of the sum of them all; the answer is unchanged, because the
+dedup against the listed keys, the scope filter and the hybrid ranking all run
+over the collected hits. One embedding for several namespaces is not available
+to a caller: the store's `asearch` takes a query string and no vector, and a
+namespace prefix search cannot hold a separate budget per kind. The searches
+still cost one embeddings request per turn, not one per kind, because
+`AsyncPostgresStore` embeds the operations that are in flight together in one
+call; that request carries the same query text once per ranked kind, so the
+embedding tokens are billed per kind. The listed read stays out of that batch:
+a batch that holds a query embeds before any SQL and fails every read in it,
+the query-less listing included. An unreachable embedding backend therefore
+answers the listed kinds and nothing for the ranked ones. A search that raises
+for another reason still fails the whole retrieval. Released as assistant-core
+0.3.0a14.
+
 ## 2026-09-13
 
 Input screening is one model judgement. `capabilities/injection_judge.py`

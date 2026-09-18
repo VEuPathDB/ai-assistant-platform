@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import math
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
@@ -106,14 +107,15 @@ async def _listed_memories(
     scope: RetrievalScope,
 ) -> list[StoredMemory]:
     """The always-kinds the scope admits, newest first, inside their budget."""
-    found: list[StoredMemory] = []
-    for kind in dict.fromkeys(scope.always_kinds):
-        listed = await store.list_all(
-            user_id=user_id,
-            kind=kind,
-            limit=scope.always_top_k,
+    listings = await asyncio.gather(
+        *(
+            store.list_all(user_id=user_id, kind=kind, limit=scope.always_top_k)
+            for kind in dict.fromkeys(scope.always_kinds)
         )
-        found.extend(stored for stored in listed if scope.admits(stored.value))
+    )
+    found = [
+        stored for listed in listings for stored in listed if scope.admits(stored.value)
+    ]
     found.sort(key=_recency_key, reverse=True)
     return found[: scope.always_top_k]
 
@@ -125,33 +127,31 @@ async def retrieve_relevant_memories(
     query: str,
     scope: RetrievalScope,
 ) -> list[StoredMemory]:
-    """The listed kinds, then the similarity ranking over the rest.
+    """The listed kinds first, then the ranked kinds searched at once.
 
-    A ranked namespace is queried for up to ``top_k // 2`` hits; candidates
-    the scope admits are scored via :func:`hybrid_score` using the HNSW cosine
-    similarity as the ``semantic`` signal. The answer is the newest
-    ``always_top_k`` of the listed kinds followed by the global top ``top_k``,
-    deduplicated by key, as :class:`StoredMemory` (carrying ``key`` +
-    ``score`` for display); call ``.value`` for the bare
-    :class:`MemoryValue`.
+    The listed read runs in its own store batch: a batch that holds a query
+    embeds before any SQL, and a failed embedding fails every read in it.
     """
-    always = await _listed_memories(store=store, user_id=user_id, scope=scope)
-    seen = {stored.key for stored in always}
     per_kind = max(1, scope.top_k // 2)
-    all_hits: list[StoredMemory] = []
-    for kind in scope.kinds:
-        if kind in scope.always_kinds:
-            continue
-        hits = await store.semantic_search(
-            user_id=user_id,
-            kind=kind,
-            query=query,
-            top_k=per_kind,
+    always = await _listed_memories(store=store, user_id=user_id, scope=scope)
+    searched = await asyncio.gather(
+        *(
+            store.semantic_search(
+                user_id=user_id,
+                kind=kind,
+                query=query,
+                top_k=per_kind,
+            )
+            for kind in scope.kinds
+            if kind not in scope.always_kinds
         )
-        all_hits.extend(
-            stored
-            for stored in hits
-            if stored.key not in seen and scope.admits(stored.value)
-        )
+    )
+    seen = {stored.key for stored in always}
+    all_hits = [
+        stored
+        for hits in searched
+        for stored in hits
+        if stored.key not in seen and scope.admits(stored.value)
+    ]
     ranked = rerank_by_hybrid_score(all_hits)[: scope.top_k]
     return always + ranked

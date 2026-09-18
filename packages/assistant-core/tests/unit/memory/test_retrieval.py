@@ -1,10 +1,15 @@
 from __future__ import annotations
 
+import asyncio
+from collections.abc import Iterable
 from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
 
 import pytest
+from langgraph.store.base import Result, SearchItem, SearchOp
+from langgraph.store.base.batch import AsyncBatchedBaseStore
 
+from assistant_core.embeddings.embedder import EmbeddingUnavailableError
 from assistant_core.memory.retrieval import (
     RetrievalScope,
     hybrid_score,
@@ -12,7 +17,7 @@ from assistant_core.memory.retrieval import (
     retrieve_relevant_memories,
 )
 from assistant_core.memory.schemas import MemoryValue
-from assistant_core.memory.store import StoredMemory
+from assistant_core.memory.store import MemoryStore, StoredMemory
 
 
 def _m(
@@ -359,3 +364,337 @@ async def test_a_kind_named_twice_is_listed_once() -> None:
     )
 
     assert [hit.key for hit in ranked] == ["p1"]
+
+
+class _SearchError(RuntimeError):
+    """What one kind's search raises in the failure test below."""
+
+
+class _BarrierStore:
+    """A store stand-in whose reads answer only once all of them are in flight."""
+
+    def __init__(self, *, hits: dict[str, list[StoredMemory]], reads: int) -> None:
+        self.hits = hits
+        self.reads = reads
+        self.in_flight = 0
+        self.peak_in_flight = 0
+        self.all_in_flight = asyncio.Event()
+
+    async def _arrive(self, kind: str) -> list[StoredMemory]:
+        self.in_flight += 1
+        self.peak_in_flight = max(self.peak_in_flight, self.in_flight)
+        if self.in_flight >= self.reads:
+            self.all_in_flight.set()
+        await asyncio.wait_for(self.all_in_flight.wait(), timeout=2.0)
+        self.in_flight -= 1
+        return self.hits.get(kind, [])
+
+    async def semantic_search(
+        self,
+        *,
+        user_id: UUID,
+        kind: str,
+        query: str,
+        top_k: int = 8,
+    ) -> list[StoredMemory]:
+        del user_id, query, top_k
+        return await self._arrive(kind)
+
+    async def list_all(
+        self,
+        *,
+        user_id: UUID,
+        kind: str,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> list[StoredMemory]:
+        del user_id, limit, offset
+        return await self._arrive(kind)
+
+
+class _OrderedStore:
+    """A store stand-in that records each read and how many of them run together."""
+
+    def __init__(self, *, hits: dict[str, list[StoredMemory]]) -> None:
+        self.hits = hits
+        self.in_flight = 0
+        self.peak_in_flight = 0
+        self.reads: list[str] = []
+
+    async def _read(self, label: str, kind: str) -> list[StoredMemory]:
+        self.in_flight += 1
+        self.peak_in_flight = max(self.peak_in_flight, self.in_flight)
+        self.reads.append(label)
+        await asyncio.sleep(0)
+        self.in_flight -= 1
+        return self.hits.get(kind, [])
+
+    async def semantic_search(
+        self,
+        *,
+        user_id: UUID,
+        kind: str,
+        query: str,
+        top_k: int = 8,
+    ) -> list[StoredMemory]:
+        del user_id, query, top_k
+        return await self._read(f"search:{kind}", kind)
+
+    async def list_all(
+        self,
+        *,
+        user_id: UUID,
+        kind: str,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> list[StoredMemory]:
+        del user_id, limit, offset
+        return await self._read(f"list:{kind}", kind)
+
+
+class _FailingKind:
+    """A store stand-in that raises for one kind and answers for the rest."""
+
+    def __init__(self, *, failing_kind: str, hits: dict[str, list[StoredMemory]]):
+        self.failing_kind = failing_kind
+        self.hits = hits
+        self.searched: list[str] = []
+
+    async def semantic_search(
+        self,
+        *,
+        user_id: UUID,
+        kind: str,
+        query: str,
+        top_k: int = 8,
+    ) -> list[StoredMemory]:
+        del user_id, query, top_k
+        self.searched.append(kind)
+        if kind == self.failing_kind:
+            raise _SearchError(kind)
+        return self.hits.get(kind, [])
+
+    async def list_all(
+        self,
+        *,
+        user_id: UUID,
+        kind: str,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> list[StoredMemory]:
+        del user_id, offset
+        return self.hits.get(kind, [])[:limit]
+
+
+async def _sequentially(
+    *,
+    store: _HitsByKind,
+    user_id: UUID,
+    query: str,
+    scope: RetrievalScope,
+) -> list[StoredMemory]:
+    """One read after another, the shape the concurrent answer must match."""
+    always: list[StoredMemory] = []
+    for kind in dict.fromkeys(scope.always_kinds):
+        listed = await store.list_all(
+            user_id=user_id, kind=kind, limit=scope.always_top_k
+        )
+        always.extend(stored for stored in listed if scope.admits(stored.value))
+    always.sort(
+        key=lambda stored: stored.value.last_used_at or stored.value.created_at,
+        reverse=True,
+    )
+    always = always[: scope.always_top_k]
+    seen = {stored.key for stored in always}
+    all_hits: list[StoredMemory] = []
+    for kind in scope.kinds:
+        if kind in scope.always_kinds:
+            continue
+        hits = await store.semantic_search(
+            user_id=user_id,
+            kind=kind,
+            query=query,
+            top_k=max(1, scope.top_k // 2),
+        )
+        all_hits.extend(
+            stored
+            for stored in hits
+            if stored.key not in seen and scope.admits(stored.value)
+        )
+    return always + rerank_by_hybrid_score(all_hits)[: scope.top_k]
+
+
+def _mixed_store() -> _HitsByKind:
+    return _HitsByKind(
+        {
+            "preference": [
+                _kind_hit(
+                    "pref-old", kind="preference", score=0.1, last_used_days_ago=9
+                ),
+                _kind_hit("pref-new", kind="preference", score=0.1),
+                _kind_hit(
+                    "pref-held",
+                    kind="preference",
+                    score=0.1,
+                    auto_retrieve=False,
+                ),
+            ],
+            "case": [
+                _kind_hit(
+                    f"case{n}",
+                    kind="case",
+                    score=0.90 - n / 100,
+                    last_used_days_ago=n + 1,
+                )
+                for n in range(6)
+            ],
+            "strategy": [
+                _kind_hit("strat-a", kind="strategy", score=0.55),
+                _kind_hit(
+                    "strat-held", kind="strategy", score=0.54, auto_retrieve=False
+                ),
+            ],
+            "knowledge": [_kind_hit("know-a", kind="knowledge", score=0.33)],
+            "gene_set_note": [_kind_hit("note-a", kind="gene_set_note", score=0.22)],
+        }
+    )
+
+
+@pytest.mark.asyncio
+async def test_the_concurrent_answer_matches_the_sequential_one() -> None:
+    """Same keys, same order, same scores as one read after another."""
+    scope = RetrievalScope(
+        kinds=("case", "strategy", "knowledge", "gene_set_note"),
+        always_kinds=("preference",),
+        always_top_k=2,
+        top_k=6,
+    )
+    user_id = uuid4()
+
+    concurrent = await retrieve_relevant_memories(
+        store=_mixed_store(), user_id=user_id, query="q", scope=scope
+    )
+    sequential = await _sequentially(
+        store=_mixed_store(), user_id=user_id, query="q", scope=scope
+    )
+
+    assert [(hit.key, hit.score) for hit in concurrent] == [
+        (hit.key, hit.score) for hit in sequential
+    ]
+
+
+@pytest.mark.asyncio
+async def test_the_ranked_kinds_are_searched_at_once() -> None:
+    kinds = ("case", "strategy", "knowledge", "gene_set_note")
+    store = _BarrierStore(
+        hits={kind: [_kind_hit(kind, kind=kind, score=0.5)] for kind in kinds},
+        reads=len(kinds),
+    )
+
+    ranked = await retrieve_relevant_memories(
+        store=store,
+        user_id=uuid4(),
+        query="q",
+        scope=RetrievalScope(kinds=kinds),
+    )
+
+    assert store.peak_in_flight == len(kinds)
+    assert {hit.key for hit in ranked} == set(kinds)
+
+
+@pytest.mark.asyncio
+async def test_a_listed_kind_is_read_before_the_searches() -> None:
+    """The listed read runs alone, ahead of the searches that run together."""
+    store = _OrderedStore(
+        hits={
+            "preference": [_kind_hit("pref", kind="preference", score=0.1)],
+            "case": [_kind_hit("case", kind="case", score=0.9)],
+            "strategy": [_kind_hit("strat", kind="strategy", score=0.8)],
+        }
+    )
+
+    ranked = await retrieve_relevant_memories(
+        store=store,
+        user_id=uuid4(),
+        query="q",
+        scope=RetrievalScope(
+            kinds=("case", "strategy"),
+            always_kinds=("preference",),
+        ),
+    )
+
+    assert store.reads == ["list:preference", "search:case", "search:strategy"]
+    assert store.peak_in_flight == 2
+    assert [hit.key for hit in ranked] == ["pref", "case", "strat"]
+
+
+@pytest.mark.asyncio
+async def test_a_kind_whose_search_raises_fails_the_retrieval() -> None:
+    """One failed kind fails the turn's retrieval; a partial ranking is never served."""
+    store = _FailingKind(
+        failing_kind="strategy",
+        hits={"case": [_kind_hit("case", kind="case", score=0.9)]},
+    )
+
+    with pytest.raises(_SearchError):
+        await retrieve_relevant_memories(
+            store=store,
+            user_id=uuid4(),
+            query="q",
+            scope=RetrievalScope(kinds=("case", "strategy")),
+        )
+
+    assert store.searched == ["case", "strategy"]
+
+
+class _EmbeddingDownStore(AsyncBatchedBaseStore):
+    """A batched store whose embedding step refuses a batch that carries a query."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.batches: list[list[str | None]] = []
+
+    async def abatch(self, ops: Iterable[SearchOp]) -> list[Result]:
+        batched = list(ops)
+        self.batches.append([op.query for op in batched])
+        queries = [op.query for op in batched if op.query is not None]
+        if queries:
+            raise EmbeddingUnavailableError(batch_size=len(queries), cause="test")
+        when = datetime.now(UTC)
+        return [[_stored_row(op.namespace_prefix, when)] for op in batched]
+
+
+def _stored_row(namespace: tuple[str, ...], when: datetime) -> SearchItem:
+    kind = namespace[-1]
+    return SearchItem(
+        namespace,
+        f"{kind}-1",
+        {
+            "kind": kind,
+            "name": kind,
+            "summary": "y",
+            "content": {},
+            "created_at": when.isoformat(),
+        },
+        when,
+        when,
+    )
+
+
+@pytest.mark.asyncio
+async def test_an_unreachable_embedder_still_answers_the_listed_kinds() -> None:
+    """The listed kinds answer from SQL and every ranked kind contributes nothing."""
+    raw = _EmbeddingDownStore()
+
+    found = await retrieve_relevant_memories(
+        store=MemoryStore(store=raw, application_id="test"),
+        user_id=uuid4(),
+        query="find kinases",
+        scope=RetrievalScope(
+            kinds=("case", "strategy", "preference"),
+            always_kinds=("preference",),
+        ),
+    )
+
+    assert [hit.key for hit in found] == ["preference-1"]
+    assert raw.batches == [[None], ["find kinases", "find kinases"]]
