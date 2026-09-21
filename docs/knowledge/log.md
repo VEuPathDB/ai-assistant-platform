@@ -1,5 +1,16 @@
 # Log
 
+## 2026-09-21
+
+The lead-usage part states the reasoning effort the lead ran with.
+`conversation/stream_parts/agent_topology.py::LeadUsagePayload` carries
+`reasoningEffort`, one of `none`, `low`, `medium` and `high`, and
+`lead_usage_event` takes it as a keyword that defaults to None, which means the
+run states none. The sub-agent parts are unchanged. The kind is not in the
+protocol's vocabulary, so `PROTOCOL.md` and the TypeScript client are untouched:
+an assistant with a lead topology registers the kind itself, and the client
+reads the payload field by field. Released as assistant-core 0.3.0a15.
+
 ## 2026-09-18
 
 A turn's memory retrieval issues one search per ranked kind at once.

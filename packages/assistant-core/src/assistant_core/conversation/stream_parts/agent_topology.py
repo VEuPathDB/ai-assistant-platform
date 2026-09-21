@@ -13,12 +13,15 @@ from pydantic_ai.ui.vercel_ai.response_types import DataChunk
 
 from assistant_core.conversation.stream_parts.registry import StreamPartRegistry
 from assistant_core.platform.pydantic_base import CamelModel
+from assistant_core.platform.types import ReasoningEffort
 
 
 class LeadUsagePayload(CamelModel):
     """Payload for the lead-usage chunk. The counts cover the lead agent only
     and exclude sub-agents. ``context_tokens`` is the input size of the latest
     request against ``context_window``, and 0 in either means unknown.
+    ``reasoning_effort`` is the effort the lead ran with, and None means the
+    run states none.
     """
 
     model_id: str = ""
@@ -26,6 +29,7 @@ class LeadUsagePayload(CamelModel):
     cost_usd: str = "0"
     context_tokens: int = 0
     context_window: int = 0
+    reasoning_effort: ReasoningEffort | None = None
 
 
 def lead_usage_event(
@@ -35,6 +39,7 @@ def lead_usage_event(
     cost_usd: str,
     context_tokens: int = 0,
     context_window: int = 0,
+    reasoning_effort: ReasoningEffort | None = None,
 ) -> DataChunk:
     """Report live lead usage. The id is stable, so repeated emissions
     reconcile into one persisted part."""
@@ -47,6 +52,7 @@ def lead_usage_event(
             cost_usd=cost_usd,
             context_tokens=context_tokens,
             context_window=context_window,
+            reasoning_effort=reasoning_effort,
         ).model_dump(by_alias=True, mode="json"),
     )
 

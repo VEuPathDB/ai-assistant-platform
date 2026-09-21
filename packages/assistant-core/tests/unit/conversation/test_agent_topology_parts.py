@@ -1,6 +1,7 @@
 """The lead and sub-agent parts, and the registry they belong on."""
 
 from assistant_core.conversation.stream_parts.agent_topology import (
+    LeadUsagePayload,
     SubAgentCallPayload,
     lead_usage_event,
     register_agent_topology_stream_parts,
@@ -27,6 +28,7 @@ def test_lead_usage_event_has_stable_id_and_payload() -> None:
         "costUsd": "0.012",
         "contextTokens": 0,
         "contextWindow": 0,
+        "reasoningEffort": None,
     }
 
 
@@ -40,6 +42,21 @@ def test_lead_usage_event_carries_the_context_fill() -> None:
     )
     assert chunk.data["contextTokens"] == 310_000
     assert chunk.data["contextWindow"] == 1_050_000
+
+
+def test_lead_usage_event_carries_the_reasoning_effort() -> None:
+    chunk = lead_usage_event(
+        model_id="openai:gpt-4.1",
+        tokens=999,
+        cost_usd="0.012",
+        reasoning_effort="high",
+    )
+    assert chunk.data["reasoningEffort"] == "high"
+
+
+def test_lead_usage_reasoning_effort_defaults_to_unknown() -> None:
+    payload = LeadUsagePayload(model_id="openai:gpt-4.1")
+    assert payload.reasoning_effort is None
 
 
 def test_sub_agent_context_fill_defaults_to_unknown() -> None:
