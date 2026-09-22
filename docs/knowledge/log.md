@@ -1,5 +1,12 @@
 # Log
 
+## 2026-09-22
+
+A sub-agent step carries its return. `SubAgentStepPayload.result` holds the tool's
+return in JSON form, capped by the emitter, beside the one-line `resultSummary`;
+the TypeScript client reads it into the merged item's `output` and the trace row.
+Released as assistant-core 0.3.0a16 and assistant-client 0.3.0-alpha.5.
+
 ## 2026-09-21
 
 The lead-usage part states the reasoning effort the lead ran with.

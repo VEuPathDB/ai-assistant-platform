@@ -143,7 +143,7 @@ function stepRows(steps: readonly SubAgentStepPayload[]): TraceRow[] {
       summary: failed ? null : item.result,
       status: STEP_STATUS[item.state],
       input: item.args,
-      output: null,
+      output: item.output,
       errorText: failed ? item.result : null,
     });
   }

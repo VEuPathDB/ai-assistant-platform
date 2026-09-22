@@ -99,6 +99,8 @@ class SubAgentStepPayload(CamelModel):
     tool_name: str | None = None
     args: dict[str, JsonValue] | None = None
     result_summary: str | None = None
+    # The tool's return in JSON form, capped by the emitter; None until it completes.
+    result: JsonValue | None = None
     text: str | None = None
 
 

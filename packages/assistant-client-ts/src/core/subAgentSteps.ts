@@ -8,6 +8,8 @@ export interface SubAgentStepPayload {
   toolName?: string | null;
   args?: Record<string, unknown> | null;
   resultSummary?: string | null;
+  /** The tool's return in JSON form, capped by the emitter. */
+  result?: unknown;
   text?: string | null;
 }
 
@@ -18,6 +20,7 @@ export type SubAgentItem =
       toolName: string;
       args: Record<string, unknown> | null;
       result: string | null;
+      output: unknown;
       state: SubAgentStepPayload["state"];
     }
   | { type: "reasoning" | "text"; key: string; text: string };
@@ -48,6 +51,7 @@ export function readSubAgentStep(data: unknown): SubAgentStepPayload | undefined
     toolName: fieldString(record, "toolName") ?? null,
     args: asRecord(record["args"]) ?? null,
     resultSummary: fieldString(record, "resultSummary") ?? null,
+    result: "result" in record ? record["result"] : null,
     text: fieldString(record, "text") ?? null,
   };
 }
@@ -76,6 +80,7 @@ export function mergeSubAgentSteps(
         toolName: step.toolName ?? "unknown",
         args: step.args ?? null,
         result: step.resultSummary ?? null,
+        output: step.result ?? null,
         state: step.state,
       });
       toolIndex.set(id, items.length - 1);
@@ -88,6 +93,7 @@ export function mergeSubAgentSteps(
     if (result !== undefined && result !== null && result !== "") {
       existing.result = result;
     }
+    if (step.result !== undefined && step.result !== null) existing.output = step.result;
     existing.state = step.state;
   });
   return items;

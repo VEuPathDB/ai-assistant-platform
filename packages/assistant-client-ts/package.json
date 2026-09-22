@@ -1,6 +1,6 @@
 {
   "name": "@veupathdb/assistant-client",
-  "version": "0.3.0-alpha.4",
+  "version": "0.3.0-alpha.5",
   "description": "A headless client for the assistant runtime wire protocol",
   "type": "module",
   "scripts": {
