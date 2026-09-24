@@ -21,7 +21,7 @@ from pydantic_ai import Agent, RunContext, Tool
 from pydantic_ai.messages import ModelMessage, ToolCallPart, ToolReturn
 from pydantic_ai.models import Model
 from pydantic_ai.toolsets import AbstractToolset
-from pydantic_ai.ui.vercel_ai.request_types import ToolApprovalResponded
+from pydantic_ai.ui.vercel_ai.request_types import FileUIPart, ToolApprovalResponded
 from pydantic_ai.ui.vercel_ai.response_types import (
     BaseChunk,
     DoneChunk,
@@ -371,6 +371,7 @@ class TurnRequest:
     conversation_id: UUID
     user_id: UUID
     prompt: str = ""
+    files: tuple[FileUIPart, ...] = ()
     is_resume: bool = False
     approval_responses: dict[str, ToolApprovalResponded] = field(default_factory=dict)
 
@@ -402,6 +403,7 @@ def _turn_start(request: TurnRequest, start_event_id: int) -> TurnStart:
         is_resume=request.is_resume,
         user_message_id=None if request.is_resume else uuid4(),
         user_prompt="" if request.is_resume else request.prompt,
+        user_files=() if request.is_resume else request.files,
         approval_responses=request.approval_responses,
     )
 
@@ -470,6 +472,7 @@ class SyntheticRuntime:
         self,
         prompt: str = "",
         *,
+        files: tuple[FileUIPart, ...] = (),
         is_resume: bool = False,
         cancel: asyncio.Event | None = None,
         approval_responses: dict[str, ToolApprovalResponded] | None = None,
@@ -493,6 +496,7 @@ class SyntheticRuntime:
                 conversation_id=self.conversation_id,
                 user_id=self.user_id,
                 prompt=prompt,
+                files=files,
                 is_resume=is_resume,
                 approval_responses=approval_responses or {},
             ),

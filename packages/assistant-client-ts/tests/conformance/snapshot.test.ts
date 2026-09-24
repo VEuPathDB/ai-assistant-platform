@@ -28,6 +28,31 @@ describe("section 5.3, envelopes rebuild the prompt side", () => {
     ]);
   });
 
+  it("keeps a file the user attached, beside the text, as the log holds it", () => {
+    const file = {
+      type: "file",
+      mediaType: "image/png",
+      filename: "blot.png",
+      url: "data:image/png;base64,iVBORw0KGgotcHJvYmUtaW1hZ2U=",
+    };
+    const envelope = {
+      type: "user-message",
+      message: {
+        id: "u1",
+        role: "user",
+        parts: [file, { type: "text", text: "What does this blot show?" }],
+      },
+    };
+
+    expect(reduceSnapshot([envelope])).toEqual([
+      {
+        id: "u1",
+        role: "user",
+        parts: [file, { type: "text", text: "What does this blot show?" }],
+      },
+    ]);
+  });
+
   it("takes a system message from the log", () => {
     const envelope = {
       type: "system-message",

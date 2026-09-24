@@ -10,7 +10,13 @@ names no phase, no role and no other agent.
 from __future__ import annotations
 
 import asyncio
-from collections.abc import AsyncGenerator, AsyncIterator, Awaitable, Callable
+from collections.abc import (
+    AsyncGenerator,
+    AsyncIterator,
+    Awaitable,
+    Callable,
+    Sequence,
+)
 from dataclasses import dataclass, field
 from decimal import Decimal
 from typing import Any
@@ -27,6 +33,7 @@ from pydantic_ai.messages import (
     FunctionToolResultEvent,
     ModelMessage,
     PartStartEvent,
+    UserContent,
 )
 from pydantic_ai.tools import DeferredToolRequests, DeferredToolResults
 from pydantic_ai.usage import RunUsage
@@ -94,7 +101,7 @@ class _RunCapture:
 class _AgentTurn:
     """What the run starts from: a new prompt, or an answered approval."""
 
-    prompt: str | None = None
+    prompt: str | Sequence[UserContent] | None = None
     history: list[ModelMessage] | None = None
     results: DeferredToolResults | None = None
     hints: tuple[DeferredToolHint, ...] = ()
@@ -123,7 +130,7 @@ def _turn_for(state: TurnState) -> _AgentTurn:
                 hints=(deferred_hint(approval),),
             )
     return _AgentTurn(
-        prompt=state.user_prompt,
+        prompt=state.user_content,
         history=thread_history(state.thread_messages_json),
     )
 

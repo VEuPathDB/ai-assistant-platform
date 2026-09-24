@@ -11,6 +11,7 @@ pass the union.
 
 from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
 from pydantic_ai.ui.vercel_ai.request_types import (
+    FileUIPart,
     TextUIPart,
     ToolApprovalResponded,
 )
@@ -34,6 +35,7 @@ __all__ = [
 
 CORE_CHECKPOINT_TYPES: tuple[type, ...] = (
     TextUIPart,
+    FileUIPart,
     ToolApprovalResponded,
     MemoryValue,
     PendingApproval,

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pydantic_ai.messages import (
+    BinaryContent,
     ModelMessage,
     ModelMessagesTypeAdapter,
     ModelRequest,
@@ -18,6 +19,7 @@ from assistant_core.conversation.history.compaction import (
     _DIGEST_CHAR_CAP,
     _DIGEST_OPENING,
     COMPACT_AT_ESTIMATED_TOKENS,
+    FILE_ESTIMATED_TOKENS,
     KEEP_RECENT_EXCHANGE_TOKENS,
     MIN_KEEP_RECENT_EXCHANGES,
     _estimated_tokens,
@@ -388,3 +390,44 @@ class TestRepeatedCompaction:
         _, grown = self._grown_history()
         twice = compact_history(grown)
         assert _estimated_tokens(twice) <= COMPACT_AT_ESTIMATED_TOKENS
+
+
+def _image(size: int) -> BinaryContent:
+    return BinaryContent(data=b"\x89PNG" + b"\x00" * size, media_type="image/png")
+
+
+def test_an_attached_image_is_estimated_by_its_text_not_its_bytes() -> None:
+    """A provider prices an image by its own rule; its bytes are no measure."""
+    one_image = [
+        ModelRequest(parts=[UserPromptPart(content=[_image(400_000), "blot?"])]),
+        _assistant_text("A western blot."),
+    ]
+
+    assert (
+        _estimated_tokens(one_image)
+        == _estimated_tokens(
+            [
+                ModelRequest(parts=[UserPromptPart(content=["blot?"])]),
+                _assistant_text("A western blot."),
+            ],
+        )
+        + FILE_ESTIMATED_TOKENS
+    )
+    assert compact_history(one_image) == one_image
+
+
+def test_a_folded_image_is_named_in_the_digest() -> None:
+    messages: list[ModelMessage] = [_user("bind the criteria")]
+    for i in range(6):
+        messages.extend(_exchange(f"call_{i}", content=_HUGE))
+    messages.append(
+        ModelRequest(parts=[UserPromptPart(content=[_image(10), "What is this?"])]),
+    )
+    for i in range(6, 12):
+        messages.extend(_exchange(f"call_{i}", content=_HUGE))
+
+    compacted = compact_history(messages)
+
+    digests = _digest_prompts(compacted)
+    assert len(digests) == 1
+    assert "- user said: (attached image/png) What is this?" in digests[0]

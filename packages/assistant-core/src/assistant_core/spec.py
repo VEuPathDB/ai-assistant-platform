@@ -20,7 +20,11 @@ from langgraph.store.postgres.aio import AsyncPostgresStore
 from pydantic import BaseModel, ConfigDict, Field
 from pydantic_ai.models import Model
 from pydantic_ai.toolsets import AbstractToolset
-from pydantic_ai.ui.vercel_ai.request_types import TextUIPart, ToolApprovalResponded
+from pydantic_ai.ui.vercel_ai.request_types import (
+    FileUIPart,
+    TextUIPart,
+    ToolApprovalResponded,
+)
 
 from assistant_core.conversation.stream_parts.registry import (
     StreamPartRegistry,
@@ -54,6 +58,8 @@ class TurnStart(BaseModel):
     is_resume: bool = False
     user_message_id: UUID | None = None
     user_prompt: str = ""
+    # The files the user attached, which the message carries before its text.
+    user_files: tuple[FileUIPart, ...] = ()
     # Set on the turn a worker opens to answer a durable call the thread parked.
     durable_result: DurableTaskResult | None = None
     # Every parked task's answer, when the step parked several calls.
@@ -89,8 +95,15 @@ class TurnStart(BaseModel):
             **base,
             "user_message_id": self.user_message_id,
             "user_prompt": self.user_prompt,
-            "user_parts": [TextUIPart(text=self.user_prompt, state="done")],
+            "user_parts": self._user_parts(),
         }
+
+    def _user_parts(self) -> list[TextUIPart | FileUIPart]:
+        """The files, then the text. A message of files alone has no text part."""
+        parts: list[TextUIPart | FileUIPart] = list(self.user_files)
+        if self.user_prompt or not parts:
+            parts.append(TextUIPart(text=self.user_prompt, state="done"))
+        return parts
 
 
 def turn_input(state: TurnState) -> dict[str, Any]:

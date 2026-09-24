@@ -17,6 +17,7 @@ import pytest
 from langgraph.checkpoint.memory import InMemorySaver
 from pydantic_ai import Agent, Tool
 from pydantic_ai.messages import (
+    BinaryContent,
     ModelMessage,
     ModelRequest,
     ModelResponse,
@@ -26,7 +27,7 @@ from pydantic_ai.messages import (
     UserPromptPart,
 )
 from pydantic_ai.models.function import AgentInfo, DeltaToolCall, FunctionModel
-from pydantic_ai.ui.vercel_ai.request_types import ToolApprovalResponded
+from pydantic_ai.ui.vercel_ai.request_types import FileUIPart, ToolApprovalResponded
 
 from assistant_core.graph import turn_message
 from assistant_core.graph.runtime import AssistantDeps, TurnContext
@@ -476,6 +477,7 @@ class _Thread:
         prompt: str = "",
         *,
         approvals: dict[str, ToolApprovalResponded] | None = None,
+        files: tuple[FileUIPart, ...] = (),
     ) -> list[dict[str, Any]]:
         # Every turn of a thread is driven under a cancel of its own.
         self.context.cancel_event.clear()
@@ -489,6 +491,7 @@ class _Thread:
             is_resume=approvals is not None,
             user_message_id=uuid4(),
             user_prompt=prompt,
+            user_files=files,
             approval_responses=approvals or {},
         )
         chunks: list[dict[str, Any]] = []
@@ -584,3 +587,65 @@ async def test_a_cancelled_turn_still_reports_the_tool_that_already_ran() -> Non
     outputs = [c for c in chunks if c["type"] == "tool-output-available"]
     assert [c["output"] for c in outputs] == ["stopped"]
     assert outputs[0]["toolCallId"] == "call-1"
+
+
+_PNG = b"\x89PNG\r\n\x1a\n-probe-image"
+_IMAGE = FileUIPart(
+    media_type="image/png",
+    filename="blot.png",
+    url="data:image/png;base64,iVBORw0KGgotcHJvYmUtaW1hZ2U=",
+)
+
+
+def _user_contents(messages: list[ModelMessage]) -> list[object]:
+    return [
+        part.content
+        for message in messages
+        if isinstance(message, ModelRequest)
+        for part in message.parts
+        if isinstance(part, UserPromptPart)
+    ]
+
+
+def _is_the_image(item: object) -> bool:
+    return (
+        isinstance(item, BinaryContent)
+        and item.data == _PNG
+        and item.media_type == "image/png"
+    )
+
+
+async def test_an_attached_image_reaches_the_model_as_bytes_before_the_text() -> None:
+    seen = _Seen()
+    thread = _Thread(_recall_model(seen))
+
+    await thread.turn("What does this blot show?", files=(_IMAGE,))
+
+    [content] = _user_contents(seen.runs[0])
+    assert isinstance(content, list)
+    assert len(content) == 2
+    assert _is_the_image(content[0])
+    assert content[1] == "What does this blot show?"
+
+
+async def test_a_message_without_a_file_reaches_the_model_as_a_string() -> None:
+    seen = _Seen()
+    thread = _Thread(_recall_model(seen))
+
+    await thread.turn(_FIRST_PROMPT)
+
+    assert _user_contents(seen.runs[0]) == [_FIRST_PROMPT]
+
+
+async def test_an_image_from_an_earlier_turn_stays_in_the_thread_history() -> None:
+    seen = _Seen()
+    thread = _Thread(_recall_model(seen))
+
+    await thread.turn("What does this blot show?", files=(_IMAGE,))
+    await thread.turn(_SECOND_PROMPT)
+
+    first, second = _user_contents(seen.runs[1])
+    assert isinstance(first, list)
+    assert _is_the_image(first[0])
+    assert first[1] == "What does this blot show?"
+    assert second == _SECOND_PROMPT

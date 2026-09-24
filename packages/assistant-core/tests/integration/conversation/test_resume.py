@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pydantic_ai.ui.vercel_ai.request_types import FileUIPart, TextUIPart
 from tests.synthetic import ADD_PROMPT, PLAIN_PROMPT, SyntheticRuntime
 
 from assistant_core.conversation.event_stream import fetch_chunks_after
@@ -86,3 +87,26 @@ async def test_a_second_turn_appends_to_the_same_thread(
 
     assert [c["type"] for c in logged].count("done") == 2
     assert {row.id for row in rows} == {first.turn_message_id, second.turn_message_id}
+
+
+_IMAGE = FileUIPart(
+    media_type="image/png",
+    filename="blot.png",
+    url="data:image/png;base64,iVBORw0KGgotcHJvYmUtaW1hZ2U=",
+)
+
+
+async def test_an_attached_file_survives_the_checkpoint_and_a_resume(
+    runtime: SyntheticRuntime,
+) -> None:
+    first = await runtime.run(PLAIN_PROMPT, files=(_IMAGE,))
+
+    await runtime.run(is_resume=True)
+
+    snapshot = await runtime.graph.aget_state(runtime.thread_config())
+    assert snapshot.values["user_parts"] == [
+        _IMAGE,
+        TextUIPart(text=PLAIN_PROMPT, state="done"),
+    ]
+    deltas = [c["delta"] for c in first.chunks if c["type"] == "text-delta"]
+    assert deltas == [f"You said: {PLAIN_PROMPT}"]

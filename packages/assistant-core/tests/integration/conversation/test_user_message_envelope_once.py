@@ -9,6 +9,7 @@ import pytest
 from sqlalchemy import select
 from tests.conftest import seed_thread
 
+from assistant_core.conversation.event_stream import fetch_snapshot_chunks
 from assistant_core.conversation.event_writer import append_user_message_once
 from assistant_core.persistence.models import ConversationEvent
 from assistant_core.platform.db import async_session_factory
@@ -115,3 +116,33 @@ async def test_one_id_is_scoped_to_its_thread(thread: UUID) -> None:
 
     assert cursor is not None
     assert len(await _envelopes(other)) == 1
+
+
+async def test_a_file_part_is_logged_and_read_back_by_the_snapshot(
+    thread: UUID,
+) -> None:
+    message_id = uuid4()
+    parts: list[dict[str, Any]] = [
+        {
+            "type": "file",
+            "mediaType": "image/png",
+            "filename": "blot.png",
+            "url": "data:image/png;base64,iVBORw0KGgotcHJvYmUtaW1hZ2U=",
+        },
+        {"type": "text", "text": "What does this blot show?"},
+    ]
+
+    await append_user_message_once(
+        conversation_id=thread,
+        turn_id=message_id,
+        message_id=message_id,
+        parts=parts,
+    )
+
+    snapshot = await fetch_snapshot_chunks(thread)
+    assert snapshot.chunks == [
+        {
+            "type": "user-message",
+            "message": {"id": str(message_id), "role": "user", "parts": parts},
+        },
+    ]

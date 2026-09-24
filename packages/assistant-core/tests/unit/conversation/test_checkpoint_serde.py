@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pydantic import BaseModel
-from pydantic_ai.ui.vercel_ai.request_types import TextUIPart
+from pydantic_ai.ui.vercel_ai.request_types import FileUIPart, TextUIPart
 
 from assistant_core.conversation.serde import (
     CORE_CHECKPOINT_TYPES,
@@ -23,6 +23,17 @@ class _UndeclaredState(BaseModel):
 def test_a_core_type_survives_a_round_trip() -> None:
     serde = build_checkpoint_serde()
     part = TextUIPart(text="hello")
+
+    assert serde.loads_typed(serde.dumps_typed(part)) == part
+
+
+def test_a_file_part_of_the_user_message_survives_a_round_trip() -> None:
+    serde = build_checkpoint_serde()
+    part = FileUIPart(
+        media_type="image/png",
+        filename="blot.png",
+        url="data:image/png;base64,iVBORw0KGgotcHJvYmUtaW1hZ2U=",
+    )
 
     assert serde.loads_typed(serde.dumps_typed(part)) == part
 

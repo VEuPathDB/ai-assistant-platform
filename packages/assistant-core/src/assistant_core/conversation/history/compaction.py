@@ -15,9 +15,12 @@ from pydantic_ai.messages import (
     ModelResponsePart,
     RetryPromptPart,
     SystemPromptPart,
+    TextContent,
     TextPart,
     ThinkingPart,
+    UserContent,
     UserPromptPart,
+    is_multi_modal_content,
 )
 
 from assistant_core.conversation.history.pairing import collect_ids
@@ -44,6 +47,9 @@ _OMITTED_MARKER = "(oldest lines omitted)"
 _ARGS_HEAD_CHARS = 80
 _RESULT_HEAD_CHARS = 160
 _CHARS_PER_TOKEN = 4
+# A provider prices an attached file by its own rule, never by its bytes, so a
+# file counts this many tokens whatever its size.
+FILE_ESTIMATED_TOKENS = 1_000
 
 _CONTENT_PARTS = (
     SystemPromptPart,
@@ -70,9 +76,31 @@ def _flat(content: object, limit: int) -> str:
     return " ".join(_render(content).split())[:limit]
 
 
+def _item_text(item: UserContent) -> str | None:
+    """An item's text, or None when the item is a file or a cache marker."""
+    if isinstance(item, str):
+        return item
+    if isinstance(item, TextContent):
+        return item.content
+    return None
+
+
+def _user_chars(content: str | Sequence[UserContent]) -> int:
+    if isinstance(content, str):
+        return len(content)
+    file_chars = FILE_ESTIMATED_TOKENS * _CHARS_PER_TOKEN
+    return sum(
+        len(text) if (text := _item_text(item)) is not None else file_chars
+        for item in content
+        if is_multi_modal_content(item) or _item_text(item) is not None
+    )
+
+
 def _part_chars(part: ModelRequestPart | ModelResponsePart) -> int:
     if isinstance(part, BaseToolCallPart):
         return len(part.tool_name) + len(part.args_as_json_str())
+    if isinstance(part, UserPromptPart):
+        return _user_chars(part.content)
     if isinstance(part, _CONTENT_PARTS):
         return len(_render(part.content))
     return 0
@@ -141,12 +169,18 @@ def _middle_results(middle: Sequence[ModelMessage]) -> dict[str, str]:
     return out
 
 
-def _user_text(content: object) -> str:
+def _user_text(content: str | Sequence[UserContent]) -> str:
+    """The message's text, and a mark for each file it carried."""
     if isinstance(content, str):
         return content
-    if isinstance(content, Sequence):
-        return " ".join(item for item in content if isinstance(item, str))
-    return ""
+    words: list[str] = []
+    for item in content:
+        text = _item_text(item)
+        if text is not None:
+            words.append(text)
+        elif is_multi_modal_content(item):
+            words.append(f"(attached {item.media_type})")
+    return " ".join(words)
 
 
 def _digest_lines(middle: Sequence[ModelMessage]) -> list[str]:

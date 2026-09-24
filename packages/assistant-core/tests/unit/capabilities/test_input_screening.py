@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+from uuid import uuid4
+
 import pytest
+from pydantic_ai.ui.vercel_ai.request_types import FileUIPart
 from tests.unit.capabilities.judging_model import JudgingModel, always
 
 from assistant_core.capabilities.injection_judge import (
@@ -15,6 +18,8 @@ from assistant_core.capabilities.input_screening import (
     ScreeningRejectionError,
     UserInputScanner,
 )
+from assistant_core.graph.turn_state import TurnState
+from assistant_core.spec import TurnStart
 
 PRODUCT_CONTEXT = "Researchers ask about parasite genes, gene sets and experiments."
 
@@ -63,3 +68,29 @@ class TestUserInputScanner:
         await scanner.scan("ok")
 
         assert model.prompts == ["ok"]
+
+
+async def test_a_message_with_a_file_is_judged_on_its_text_alone() -> None:
+    """The judge reads the prompt string; the attached bytes never reach it."""
+    scanner, model = _scanner(InjectionVerdict(injection=False, confidence=0.01))
+    start = TurnStart(
+        conversation_id=uuid4(),
+        user_id=uuid4(),
+        site_id="plasmodb",
+        mode="chat",
+        turn_message_id=uuid4(),
+        turn_start_event_id=0,
+        user_message_id=uuid4(),
+        user_prompt="What does this blot show?",
+        user_files=(
+            FileUIPart(
+                media_type="image/png",
+                url="data:image/png;base64,iVBORw0KGgotcHJvYmUtaW1hZ2U=",
+            ),
+        ),
+    )
+
+    await scanner.scan(TurnState(**start.state_kwargs()).user_prompt)
+
+    assert model.prompts == ["What does this blot show?"]
+    assert model.message_counts == [1]

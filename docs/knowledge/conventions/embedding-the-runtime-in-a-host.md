@@ -64,6 +64,8 @@ this order.
    `capabilities.tool_result_screen.screened_output(judge=...)`, which answers
    the `scan` that `mcp.resolution.ResolvedToolSources` takes; that path reads
    a long result in windows and withholds one too long for its window budget.
+   The scanner reads the message's text only: an attached file is never
+   screened.
 6. **Append the user's message.**
    `persistence.repositories.message.MessagesRepository.insert_message` writes
    the turn's metadata row, and
@@ -86,6 +88,17 @@ this order.
    the body drives the host's turn driver.
 10. **Answer with a tail.** `iter_sse(conversation_id=..., after=<the baseline
     of step 7>)`.
+
+An attached file travels with the turn. The host passes the message's `file`
+parts as `spec.TurnStart.user_files` (pydantic-ai's `FileUIPart`), the state
+keeps them before the text in `TurnState.user_parts`, and
+`TurnState.user_content` is what a graph hands the model: the text as a string,
+or, with a file, a list in which each file is the content pydantic-ai's Vercel
+AI adapter makes of it (`BinaryContent` for a data URL). The stock single-agent
+graph starts its run from `user_content`, and the file stays in the thread's
+history on later turns. History compaction counts a file as
+`conversation.history.compaction.FILE_ESTIMATED_TOKENS` and names it in the
+digest by its media type when it folds the message.
 
 Spend is the host's decision on the runtime's count: `quota.get_current(session,
 user_id, limit_usd=...)` takes the budget as an argument, and what a caller at

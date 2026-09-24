@@ -1,4 +1,7 @@
-"""The trust boundary one turn's user text crosses before an agent reads it."""
+"""The trust boundary one turn's user text crosses before an agent reads it.
+
+It reads the message's text only; an attached file is never screened here.
+"""
 
 from __future__ import annotations
 

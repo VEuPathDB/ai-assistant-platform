@@ -3,14 +3,19 @@ accounting, and the deferred call the turn parked for a user or a worker."""
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from decimal import Decimal
 from typing import Literal
 from uuid import UUID, uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, JsonValue
+from pydantic_ai.messages import ModelRequest, UserContent, UserPromptPart
+from pydantic_ai.ui.vercel_ai import VercelAIAdapter
 from pydantic_ai.ui.vercel_ai.request_types import (
+    FileUIPart,
     TextUIPart,
     ToolApprovalResponded,
+    UIMessage,
 )
 
 from assistant_core.memory.schemas import MemoryValue
@@ -158,7 +163,7 @@ class TurnState(BaseModel):
 
     user_message_id: UUID | None = None
     user_prompt: str = ""
-    user_parts: list[TextUIPart] = Field(default_factory=list)
+    user_parts: list[TextUIPart | FileUIPart] = Field(default_factory=list)
     turn_trace_id: str | None = None
     turn_created_at: str | None = None
     turn_message_id: UUID = Field(default_factory=uuid4)
@@ -186,6 +191,29 @@ class TurnState(BaseModel):
         default_factory=dict,
     )
     retrieved_memories: list[MemoryValue] = Field(default_factory=list)
+
+    @property
+    def user_content(self) -> str | Sequence[UserContent]:
+        """The user's message as the model reads it.
+
+        A message of text alone is its string. A file becomes the content
+        pydantic-ai's own Vercel AI adapter makes of it, in the message's order.
+        """
+        loaded = VercelAIAdapter.load_messages(
+            [
+                UIMessage(
+                    id=str(self.user_message_id), role="user", parts=[*self.user_parts]
+                )
+            ],
+        )
+        prompts = [
+            part.content
+            for message in loaded
+            if isinstance(message, ModelRequest)
+            for part in message.parts
+            if isinstance(part, UserPromptPart)
+        ]
+        return prompts[0] if prompts else self.user_prompt
 
     @property
     def durable_answers(self) -> dict[UUID, DurableTaskResult]:

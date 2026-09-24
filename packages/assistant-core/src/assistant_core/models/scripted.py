@@ -26,6 +26,7 @@ from pydantic_ai.messages import (
     TextPart,
     ToolCallPart,
     ToolReturnPart,
+    UserContent,
     UserPromptPart,
 )
 from pydantic_ai.models.function import AgentInfo, DeltaToolCall, FunctionModel
@@ -63,14 +64,21 @@ def detect_role(info: AgentInfo, roles: Sequence[RoleMarkers]) -> str:
     return UNKNOWN_ROLE
 
 
+def _text_of(content: str | Sequence[UserContent]) -> str:
+    """The text of one user message. A file beside the text is not text."""
+    if isinstance(content, str):
+        return content
+    return "\n".join(item for item in content if isinstance(item, str))
+
+
 def user_texts(messages: list[ModelMessage]) -> list[str]:
-    """Every user message the run carries, in order."""
+    """The text of every user message the run carries, in order."""
     return [
-        part.content
+        _text_of(part.content)
         for msg in messages
         if isinstance(msg, ModelRequest)
         for part in msg.parts
-        if isinstance(part, UserPromptPart) and isinstance(part.content, str)
+        if isinstance(part, UserPromptPart)
     ]
 
 
