@@ -89,7 +89,11 @@ this order.
 
 Spend is the host's decision on the runtime's count: `quota.get_current(session,
 user_id, limit_usd=...)` takes the budget as an argument, and what a caller at
-the limit is told is the host's.
+the limit is told is the host's. Every charge names its payer:
+`quota.accumulate(session, user_id=..., tokens=..., cost_usd=..., paid_by=...)`
+has no default for `paid_by`, because only the host knows whose provider key a
+model call ran on. The limit counts `PaidBy.DEPLOYMENT` rows only, and
+`quota.get_period_totals(session, user_id, paid_by=...)` reads one payer's spend.
 
 # The worker
 

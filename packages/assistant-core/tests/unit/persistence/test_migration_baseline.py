@@ -9,6 +9,7 @@ BASELINE = "2026_09_09_0001"
 STOP_AND_COST = "2026_09_09_0002"
 SCRATCHPAD = "2026_09_09_0003"
 TASKS = "2026_09_09_0004"
+PAYER = "2026_09_24_0005"
 
 
 def _revisions() -> list[Script]:
@@ -63,6 +64,14 @@ def test_the_task_revision_also_refuses_to_drop_its_tables() -> None:
     assert revision is not None
 
     with pytest.raises(NotImplementedError, match="host chain built"):
+        revision.module.downgrade()
+
+
+def test_the_payer_revision_refuses_to_merge_two_payers_rows() -> None:
+    revision = ScriptDirectory.from_config(alembic_config()).get_revision(PAYER)
+    assert revision is not None
+
+    with pytest.raises(NotImplementedError, match="who paid"):
         revision.module.downgrade()
 
 

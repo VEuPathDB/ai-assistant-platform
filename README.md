@@ -79,9 +79,13 @@ The runtime holds the rules that read its own rows and hands back the decisions
 a product makes. These seams carry that split.
 
 `assistant_core.quota` counts spend into `monthly_usage` per user per
-application, and `get_current(session, user_id, limit_usd=...)` takes the
-budget as an argument: the runtime stores no limit and reads no user record.
-What a caller at a hundred percent is told is the host's.
+application per payer, and `get_current(session, user_id, limit_usd=...)` takes
+the budget as an argument: the runtime stores no limit and reads no user record.
+What a caller at a hundred percent is told is the host's. Every charge names
+who paid, `PaidBy.DEPLOYMENT` or `PaidBy.USER`
+(`assistant_core.platform.types`); the cap counts the deployment's spend only,
+and `get_period_totals(session, user_id, paid_by=PaidBy.USER)` reads the spend
+on the user's own key apart from it.
 
 `assistant_core.conversation.cancellation` writes the stop row a running worker
 polls, and fails the job of a worker that is already gone through

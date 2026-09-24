@@ -14,6 +14,7 @@ from assistant_core import quota
 from assistant_core.persistence.models import MonthlyUsage
 from assistant_core.platform.context import application_id_ctx
 from assistant_core.platform.db import async_session_factory
+from assistant_core.platform.types import PaidBy
 
 HOME = "pathfinder"
 OTHER = "companion"
@@ -36,6 +37,7 @@ async def _accumulate(application_id: str, user_id: UUID, cost: str) -> None:
                 user_id=user_id,
                 tokens=100,
                 cost_usd=Decimal(cost),
+                paid_by=PaidBy.DEPLOYMENT,
             )
             await session.commit()
     finally:
@@ -135,7 +137,13 @@ async def test_a_charge_of_nothing_writes_no_row(
     await seed_host_user(user_id)
 
     async with async_session_factory() as session:
-        await quota.accumulate(session, user_id=user_id, tokens=0, cost_usd=Decimal(0))
+        await quota.accumulate(
+            session,
+            user_id=user_id,
+            tokens=0,
+            cost_usd=Decimal(0),
+            paid_by=PaidBy.DEPLOYMENT,
+        )
         await session.commit()
 
     assert await _rows(user_id) == []

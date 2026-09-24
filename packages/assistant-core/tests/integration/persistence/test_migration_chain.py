@@ -5,6 +5,7 @@ from decimal import Decimal
 from uuid import UUID, uuid4
 
 import pytest
+from alembic import command
 from alembic.autogenerate import compare_metadata
 from alembic.migration import MigrationContext
 from sqlalchemy import Column, MetaData, String, Table, insert, inspect, select, text
@@ -19,7 +20,12 @@ from sqlalchemy.ext.asyncio import (
 from sqlalchemy.pool import NullPool
 from tests._host_schema import HOST_USERS
 
-from assistant_core.migrate import VERSION_TABLE, include_object, upgrade_head
+from assistant_core.migrate import (
+    VERSION_TABLE,
+    alembic_config,
+    include_object,
+    upgrade_head,
+)
 from assistant_core.persistence.models import (
     BackgroundTask,
     Base,
@@ -34,8 +40,10 @@ from assistant_core.persistence.models import (
     TaskProgressRow,
 )
 from assistant_core.platform.context import DEFAULT_APPLICATION_ID
+from assistant_core.platform.types import PaidBy
 
-HEAD = "2026_09_09_0004"
+HEAD = "2026_09_24_0005"
+TASKS = "2026_09_09_0004"
 HOST_TABLES = [HOST_USERS]
 
 _STAMP = Table(
@@ -63,8 +71,13 @@ _NEW_STOP = text(
     " VALUES (:conversation_id, :turn_id)"
 )
 _NEW_USAGE = text(
-    "INSERT INTO monthly_usage (id, user_id, period_start)"
-    " VALUES (:id, :user_id, DATE '2026-09-01')"
+    "INSERT INTO monthly_usage (id, user_id, period_start, paid_by)"
+    " VALUES (:id, :user_id, DATE '2026-09-01', 'deployment')"
+)
+# A usage row as a database before the payer revision writes it.
+_UNPAID_USAGE = text(
+    "INSERT INTO monthly_usage (id, user_id, period_start, total_cost_usd)"
+    " VALUES (:id, :user_id, DATE '2026-09-01', 2.5)"
 )
 _NEW_NOTE = text(
     "INSERT INTO scratchpad_notes"
@@ -131,6 +144,27 @@ async def _fresh_database(template: AsyncEngine, name: str) -> AsyncEngine:
 
 def _migrate(connection: Connection) -> None:
     upgrade_head(connection)
+
+
+def _migrate_to_tasks(connection: Connection) -> None:
+    config = alembic_config()
+    config.attributes["connection"] = connection
+    command.upgrade(config, TASKS)
+
+
+def _payer_column(connection: Connection) -> dict[str, object]:
+    return next(
+        dict(column)
+        for column in inspect(connection).get_columns("monthly_usage")
+        if column["name"] == "paid_by"
+    )
+
+
+def _usage_keys(connection: Connection) -> list[list[str | None]]:
+    return [
+        key["column_names"]
+        for key in inspect(connection).get_unique_constraints("monthly_usage")
+    ]
 
 
 def _foreign_keys(connection: Connection, table: str) -> set[tuple[str, str, str]]:
@@ -271,6 +305,7 @@ async def test_a_thread_written_on_the_chain_schema_reads_back(
     assert isinstance(thread.user_id, UUID)
     assert stop.requested_at is not None
     assert usage.application_id == DEFAULT_APPLICATION_ID
+    assert usage.paid_by is PaidBy.DEPLOYMENT
     assert usage.total_cost_usd == Decimal(0)
     assert usage.total_tokens == 0
     assert usage.updated_at is not None
@@ -683,3 +718,73 @@ async def test_the_key_is_not_added_twice_when_a_host_chain_built_it(
         assert len(named) == 1
     finally:
         await engine.dispose()
+
+
+async def test_the_payer_revision_moves_every_existing_row_to_the_deployment(
+    db_engine: AsyncEngine,
+) -> None:
+    """A row written before the payer existed was paid by the deployment."""
+    engine = await _fresh_database(db_engine, "assistant_core_payer")
+    user_id, usage_id = uuid4(), uuid4()
+    try:
+        async with engine.begin() as connection:
+            await connection.run_sync(Base.metadata.create_all, tables=HOST_TABLES)
+            await connection.run_sync(_migrate_to_tasks)
+            await connection.execute(insert(HOST_USERS).values(id=user_id))
+            await connection.execute(
+                _UNPAID_USAGE, {"id": str(usage_id), "user_id": str(user_id)}
+            )
+            await connection.run_sync(_migrate)
+        async with engine.connect() as connection:
+            payer = await connection.execute(text("SELECT paid_by FROM monthly_usage"))
+            column = await connection.run_sync(_payer_column)
+            keys = await connection.run_sync(_usage_keys)
+            differences = await connection.run_sync(_differences)
+
+        assert list(payer.scalars()) == ["deployment"]
+        assert column["nullable"] is False
+        assert column["default"] is None
+        assert keys == [["user_id", "application_id", "period_start", "paid_by"]]
+        assert differences == []
+    finally:
+        await engine.dispose()
+
+
+async def test_a_usage_row_that_names_no_payer_is_refused(
+    chain_engine: AsyncEngine,
+) -> None:
+    """The column carries no default, so a writer must say who paid."""
+    user_id = uuid4()
+    maker = async_sessionmaker(
+        chain_engine, class_=AsyncSession, expire_on_commit=False
+    )
+    async with maker() as session:
+        await session.execute(insert(HOST_USERS).values(id=user_id))
+        await session.commit()
+        with pytest.raises(IntegrityError, match="paid_by"):
+            await session.execute(
+                _UNPAID_USAGE, {"id": str(uuid4()), "user_id": str(user_id)}
+            )
+        await session.rollback()
+
+
+async def test_a_usage_row_with_an_unknown_payer_is_refused(
+    chain_engine: AsyncEngine,
+) -> None:
+    """The check constraint the revision wrote holds at the database."""
+    user_id = uuid4()
+    maker = async_sessionmaker(
+        chain_engine, class_=AsyncSession, expire_on_commit=False
+    )
+    async with maker() as session:
+        await session.execute(insert(HOST_USERS).values(id=user_id))
+        await session.commit()
+        with pytest.raises(IntegrityError, match="ck_monthly_usage_paid_by"):
+            await session.execute(
+                text(
+                    "INSERT INTO monthly_usage (id, user_id, period_start, paid_by)"
+                    " VALUES (:id, :user_id, DATE '2026-09-01', 'house')"
+                ),
+                {"id": str(uuid4()), "user_id": str(user_id)},
+            )
+        await session.rollback()

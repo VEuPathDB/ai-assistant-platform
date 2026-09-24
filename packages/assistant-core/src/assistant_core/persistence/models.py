@@ -18,6 +18,7 @@ from sqlalchemy import (
     Computed,
     Date,
     DateTime,
+    Enum,
     Float,
     ForeignKey,
     Identity,
@@ -37,9 +38,11 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, MappedColumn, mapped_column
 from sqlalchemy.types import CHAR, TypeDecorator, TypeEngine
 
 from assistant_core.platform.context import DEFAULT_APPLICATION_ID, calling_application
+from assistant_core.platform.types import PaidBy
 
 APPLICATION_ID_LENGTH = 64
 ASSISTANT_ID_LENGTH = 64
+PAID_BY_LENGTH = 16
 # The assistant a thread takes when its creator names none.
 DEFAULT_ASSISTANT_ID = "default"
 
@@ -281,7 +284,7 @@ class MonthlyUsage(Base):
     """Accumulated token and cost usage for one application of one user, per month.
 
     period_start is always the first UTC day of the month. Accumulation is an
-    upsert on the user, the application and the period.
+    upsert on the user, the application, the period and the payer.
     """
 
     __tablename__ = "monthly_usage"
@@ -290,7 +293,12 @@ class MonthlyUsage(Base):
             "user_id",
             "application_id",
             "period_start",
-            name="monthly_usage_user_app_period_key",
+            "paid_by",
+            name="monthly_usage_user_app_period_payer_key",
+        ),
+        CheckConstraint(
+            "paid_by IN ('deployment', 'user')",
+            name="ck_monthly_usage_paid_by",
         ),
         Index("monthly_usage_user_idx", "user_id"),
     )
@@ -301,6 +309,15 @@ class MonthlyUsage(Base):
     )
     application_id: Mapped[str] = application_id_column()
     period_start: Mapped[date] = mapped_column(Date, nullable=False)
+    paid_by: Mapped[PaidBy] = mapped_column(
+        Enum(
+            PaidBy,
+            native_enum=False,
+            length=PAID_BY_LENGTH,
+            values_callable=lambda payers: [payer.value for payer in payers],
+        ),
+        nullable=False,
+    )
     total_cost_usd: Mapped[Decimal] = mapped_column(
         Numeric(12, 6), nullable=False, server_default=text("0")
     )

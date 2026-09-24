@@ -1,5 +1,19 @@
 # Log
 
+## 2026-09-24
+
+Every monthly usage row names who paid. `assistant_core.platform.types.PaidBy`
+is `deployment` or `user`; `quota.accumulate` takes `paid_by` with no default
+and refuses an unknown value before it writes, and the upsert keys on the user,
+the application, the period and the payer. `quota.get_current` counts
+deployment-paid rows only, and `quota.get_period_totals` reads one payer's spend
+for the period. Revision `2026_09_24_0005` adds `monthly_usage.paid_by` as NOT
+NULL, moves every existing row to `deployment`, drops the column default, adds
+`ck_monthly_usage_paid_by` and swaps the unique key for
+`monthly_usage_user_app_period_payer_key`. The wire is unchanged:
+`data-turn-usage` states what a turn cost whoever paid, and no monthly summary
+crosses it. Released as assistant-core 0.3.0a17.
+
 ## 2026-09-22
 
 A sub-agent step carries its return. `SubAgentStepPayload.result` holds the tool's
