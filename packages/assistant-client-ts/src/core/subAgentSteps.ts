@@ -93,7 +93,8 @@ export function mergeSubAgentSteps(
     if (result !== undefined && result !== null && result !== "") {
       existing.result = result;
     }
-    if (step.result !== undefined && step.result !== null) existing.output = step.result;
+    if (step.result !== undefined && step.result !== null)
+      existing.output = step.result;
     existing.state = step.state;
   });
   return items;
