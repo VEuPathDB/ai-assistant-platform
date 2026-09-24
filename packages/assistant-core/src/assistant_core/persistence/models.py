@@ -469,7 +469,7 @@ class BackgroundTask(Base):
         nullable=False,
     )
     tool_name: Mapped[str] = mapped_column(Text, nullable=False)
-    # The pydantic-ai call this task answers.
+    # The pydantic-ai call this task answers. None for a host-started task.
     tool_call_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
     status: Mapped[str] = mapped_column(Text, nullable=False, default="pending")
     args: Mapped[dict[str, Any]] = mapped_column(

@@ -109,7 +109,7 @@ async def test_an_empty_scratchpad_is_named_apart_from_a_missed_filter(
     assert isinstance(result, NoteListResult)
     assert result.total_notes == 0
     assert result.matches == []
-    assert result.summary == "No notes saved in this scratchpad yet."
+    assert result.summary == "No notes saved on this conversation yet."
 
 
 async def test_a_search_reports_the_query_it_answered(
@@ -151,7 +151,10 @@ async def test_a_search_that_hits_nothing_still_reports_the_scratchpad_size(
     assert isinstance(result, NoteSearchResult)
     assert result.total_notes == 1
     assert result.matches == []
-    assert "1 notes total" in result.summary
+    assert result.summary == (
+        "No notes match 'zqzqzq' (1 notes on this conversation - try list_notes "
+        "to browse)."
+    )
 
 
 async def test_reading_a_note_returns_its_body_and_token_count(

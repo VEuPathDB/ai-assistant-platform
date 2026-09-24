@@ -12,9 +12,16 @@ from procrastinate.testing import InMemoryConnector
 from sqlalchemy import select
 from structlog.testing import capture_logs
 from tests.conftest import seed_host_user
-from tests.integration.tasks.conftest import ONE_PROMPT, DurableRuntime
+from tests.integration.tasks.conftest import (
+    HOST_LOCK,
+    HOST_UPLOAD_ID,
+    ONE_PROMPT,
+    DurableRuntime,
+    HostThread,
+)
 
 from assistant_core.conversation.event_writer import append_chunk
+from assistant_core.graph.turn_state import DurableTaskResult
 from assistant_core.persistence.models import (
     BackgroundTask,
     Conversation,
@@ -30,6 +37,8 @@ from assistant_core.tasks.completion_turn import (
     CompletionTurn,
     install_completion_turn,
 )
+from assistant_core.tasks.declaration import DurableTool
+from assistant_core.tasks.host_task import start_host_task
 from assistant_core.tasks.maintenance import release_dead_turn, release_stalled_jobs
 from assistant_core.tasks.names import CHAT_TURN_QUEUE, CHAT_TURN_TASK
 
@@ -426,3 +435,82 @@ async def test_a_second_sweep_does_not_open_a_duplicate_completion_turn(
     assert drives == [rows[0].id]
     assert (await _chunk_types(durable_runtime.conversation_id)).count("done") == 1
     assert _status(task_queue, job_id) == "failed"
+
+
+async def _held_host_task(
+    queue: procrastinate.App,
+    tool: DurableTool,
+    thread: HostThread,
+) -> tuple[UUID, int]:
+    """A host-started task whose job a worker took and then died holding."""
+    task_id = await start_host_task(
+        tool,
+        conversation_id=thread.conversation_id,
+        user_id=thread.user_id,
+        kwargs={"upload_id": HOST_UPLOAD_ID},
+        lock=HOST_LOCK,
+    )
+    job_id = _only_job_id(queue)
+    _hold(queue, job_id)
+    return task_id, job_id
+
+
+async def test_a_dead_worker_s_host_task_is_failed_and_the_thread_is_not_told(
+    queue: procrastinate.App,
+    host_tool: DurableTool,
+    host_thread: HostThread,
+    completion_turns: list[DurableTaskResult],
+) -> None:
+    task_id, job_id = await _held_host_task(queue, host_tool, host_thread)
+    repo = BackgroundTaskRepository(session_factory=async_session_factory)
+    await repo.mark_running(task_id=task_id)
+
+    await release_stalled_jobs()
+
+    rows = await _task_rows(host_thread.conversation_id)
+    assert [(row.status, row.error) for row in rows] == [
+        ("failed", _DEAD_WORKER_TASK_REASON),
+    ]
+    assert completion_turns == []
+    assert await _chunks(host_thread.conversation_id) == []
+    assert _status(queue, job_id) == "failed"
+
+
+async def test_a_host_task_result_recorded_before_the_worker_died_is_completed(
+    queue: procrastinate.App,
+    host_tool: DurableTool,
+    host_thread: HostThread,
+    completion_turns: list[DurableTaskResult],
+) -> None:
+    task_id, _job = await _held_host_task(queue, host_tool, host_thread)
+    repo = BackgroundTaskRepository(session_factory=async_session_factory)
+    await repo.mark_result_ready(task_id=task_id, result={"upload_id": HOST_UPLOAD_ID})
+
+    await release_stalled_jobs()
+
+    rows = await _task_rows(host_thread.conversation_id)
+    assert [(row.status, row.result) for row in rows] == [
+        ("complete", {"upload_id": HOST_UPLOAD_ID}),
+    ]
+    assert completion_turns == []
+    assert await _chunks(host_thread.conversation_id) == []
+
+
+async def test_a_host_task_that_already_closed_is_left_as_it_is(
+    queue: procrastinate.App,
+    host_tool: DurableTool,
+    host_thread: HostThread,
+    completion_turns: list[DurableTaskResult],
+) -> None:
+    task_id, _job = await _held_host_task(queue, host_tool, host_thread)
+    repo = BackgroundTaskRepository(session_factory=async_session_factory)
+    await repo.mark_failed(task_id=task_id, error="The site refused the file.")
+
+    await release_stalled_jobs()
+
+    rows = await _task_rows(host_thread.conversation_id)
+    assert [(row.status, row.error) for row in rows] == [
+        ("failed", "The site refused the file."),
+    ]
+    assert completion_turns == []
+    assert await _chunks(host_thread.conversation_id) == []

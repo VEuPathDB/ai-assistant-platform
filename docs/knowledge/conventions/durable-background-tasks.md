@@ -1,10 +1,10 @@
 ---
 type: Convention
 title: Durable background tasks
-description: What a durable tool does to a turn, what the worker does with it, how progress reaches the thread, and what a host wires to run one.
+description: What a durable tool does to a turn, what the worker does with it, how progress reaches the thread, what a host-started task never does, and what a host wires to run one.
 tags: [assistant-core, durable-tasks, protocol]
 generated: { by: claude-code/opus-5, at: 2026-09-09T00:00:00Z }
-verified: { by: claude-code/opus-5, at: 2026-09-09T00:00:00Z }
+verified: { by: claude-code/opus-5.5, at: 2026-09-24T00:00:00Z }
 status: stable
 ---
 
@@ -63,6 +63,58 @@ advances five percentage points, or after ten seconds of silence. A scoped
 child emitter reports in a lane of its own, so a fan-out leaves one part per
 lane.
 
+# A host-started task
+
+A durable task no model call started: a button in the host's own interface
+starts it, and a job runs its body on the worker like any other. It is declared
+with `declare_durable_tool(tool_name=..., estimated_duration_seconds=...,
+host_started=True)` and started from the host's request with
+
+```python
+task_id = await start_host_task(
+    tool,
+    conversation_id=...,
+    user_id=...,
+    kwargs={...},
+    lock="...",
+)
+```
+
+`kwargs` reaches the body as its keyword arguments. The call writes the row
+with `tool_call_id` NULL, captures the host's job context as a durable call
+does, and defers the job under `lock`. A job the queue refuses leaves no row,
+as it does for a durable call.
+
+**The lock is the host's, and never the thread's id.** A durable call's job
+and every chat turn of a thread take the thread's id as their lock, because
+both write the thread's checkpoint. A host-started body writes no checkpoint,
+so it takes a lock named for its own work, and a turn in the same thread is
+never queued behind it. `start_host_task` raises `ThreadLockedHostTaskError`
+when the lock it is given is the thread's id.
+
+A host-started task never:
+
+- writes a chunk to the thread's log: no `data-background-task-started`, no
+  `data-task-progress` and no `data-task-completed`. Its emitter is built with
+  `on_thread=False`, so its progress reaches `task_progress` and the
+  `task_progress:<conversation_id>` notification only, which is what
+  `tasks.queries.list_task_rows` and `latest_progress_by_task` read;
+- parks a call or opens a completion turn. The runner records the result and
+  completes the row, or fails it with the text the body raised;
+- counts for `has_active_task`, which asks whether a turn waits on a task;
+- starts from an agent tool. `durable_tool(tool)` raises
+  `HostStartedDurableToolError` when the module that decorates the tool is
+  imported, and `start_host_task` raises `ModelStartedDurableToolError` for a
+  declaration without the flag.
+
+The worker's runner reads the flag off the declaration it holds.
+`has_active_task` and the sweep read the row, because the api process may
+declare no tool and a sweep may meet a row after a restart: a NULL
+`tool_call_id` is the host-started row. `start_host_task` and the decorator
+keep the two in step, since each writes the only value its kind of row carries.
+See
+[A host-started task writes nothing to the thread](../decisions/a-host-started-task-writes-nothing-to-the-thread.md).
+
 # What a host wires
 
 - `install_task_app(app, durable_queue=...)` - the procrastinate application,
@@ -111,6 +163,11 @@ A released `durable:<tool>` job is settled in the worker's place, by
   of one outcome is what a reader already tolerates.
 - **open with nothing** (`pending`, `running`): the row fails with the reason,
   the failure is announced, and the parked call is answered with it.
+
+A host-started row (`tool_call_id` NULL) has no call to answer and no thread
+to tell. A closed one stays as it is, an open one with a result completes, and
+an open one with nothing fails with the reason. The settlement writes no chunk
+and opens no turn.
 
 The order a settlement writes in is therefore: take the lease, write the
 outcome chunk, close the row, open the completion turn, release the job. Every
@@ -172,6 +229,9 @@ still failed, so the lock releases and only the stream stays open.
 3. Write the body and `register_durable_impl(tool, body)` where the worker
    registers its bodies.
 
+A host-started tool skips step 2: the host calls `start_host_task` with the
+declaration instead.
+
 The job name is derived from the declaration, so there is no third string to
 keep in step. See
 [A durable tool is declared once](../decisions/a-durable-tool-is-declared-once.md).
@@ -182,4 +242,5 @@ keep in step. See
 `data-background-task-started`, `data-task-progress` and `data-task-completed`
 are the three chunks, and
 `packages/assistant-client-ts/tests/conformance/durableTask.test.ts` gates the
-consumer side of them.
+consumer side of them. A host-started task adds nothing to the wire, because it
+writes none of them.

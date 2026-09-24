@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import pytest
 from pydantic_ai.messages import (
     ModelMessage,
     ModelResponse,
@@ -103,9 +104,7 @@ def test_the_hosts_sentence_is_appended_to_the_promote_tool_description() -> Non
 def test_a_host_that_supplies_no_sentence_gets_the_tool_docstring_alone() -> None:
     plain = _tool_description(ScratchpadGuidance(), "promote_to_memory")
 
-    assert plain.startswith(
-        "Promote a scratchpad note to the user's long-term memory.",
-    )
+    assert plain.startswith("Promote a note to the user's long-term memory.")
     assert "marker set" not in plain
 
 
@@ -116,3 +115,30 @@ def test_the_sentence_reaches_no_other_tool() -> None:
         ScratchpadGuidance(),
         "note",
     )
+
+
+_TOOL_NAMES = (
+    "note",
+    "update_note",
+    "delete_note",
+    "pin_note",
+    "unpin_note",
+    "list_notes",
+    "search_notes",
+    "read_note",
+    "promote_to_memory",
+)
+
+
+def test_the_note_tool_describes_a_note() -> None:
+    assert _tool_description(ScratchpadGuidance(), "note").startswith(
+        "Save a note.\n",
+    )
+
+
+@pytest.mark.parametrize("name", _TOOL_NAMES)
+def test_no_tool_description_names_a_scratchpad_or_a_thread(name: str) -> None:
+    description = _tool_description(ScratchpadGuidance(), name).lower()
+
+    assert "scratchpad" not in description
+    assert "thread" not in description

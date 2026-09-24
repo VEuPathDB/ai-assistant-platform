@@ -34,6 +34,18 @@ def test_a_declaration_names_the_job_the_decorator_defers() -> None:
     assert tool.estimated_duration_seconds == 90
 
 
+def test_a_declaration_is_started_by_a_model_unless_it_says_otherwise() -> None:
+    crunch = declare_durable_tool(tool_name="crunch", estimated_duration_seconds=90)
+    upload = declare_durable_tool(
+        tool_name="install_upload",
+        estimated_duration_seconds=600,
+        host_started=True,
+    )
+
+    assert crunch.host_started is False
+    assert upload.host_started is True
+
+
 def test_a_declaration_registers_the_spec_the_answering_turn_reads() -> None:
     def chunks(payload: Any, task_id: UUID, call_id: str | None) -> list[Any]:
         del payload, task_id, call_id

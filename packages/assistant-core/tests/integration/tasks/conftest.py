@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import re
 from collections.abc import AsyncIterator, Awaitable, Callable, Iterator
 from contextlib import (
     AbstractAsyncContextManager,
@@ -35,7 +36,7 @@ from pydantic_ai.messages import (
 from pydantic_ai.models import Model
 from pydantic_ai.models.function import AgentInfo, DeltaToolCall, FunctionModel
 from pydantic_ai.ui.vercel_ai.response_types import DoneChunk, FinishChunk
-from tests.conftest import seed_host_user
+from tests.conftest import seed_host_user, seed_thread
 from tests.synthetic import UsageLedger, dump_chunk
 
 from assistant_core.conversation.checkpointer import (
@@ -45,7 +46,7 @@ from assistant_core.conversation.checkpointer import (
 from assistant_core.conversation.event_writer import ChatEventWriter, ChatWriter
 from assistant_core.graph.runtime import AssistantDeps, TurnContext
 from assistant_core.graph.single_agent import single_agent_graph
-from assistant_core.graph.turn_state import TurnState
+from assistant_core.graph.turn_state import DurableTaskResult, TurnState
 from assistant_core.models.scripted import (
     called_tool_parts,
     current_turn,
@@ -63,8 +64,10 @@ from assistant_core.registry import (
     reset_assistant_registry,
 )
 from assistant_core.spec import AssistantSpec, TurnContextRequest, TurnStart, turn_input
+from assistant_core.tasks import runner
 from assistant_core.tasks.app import install_task_app, reset_task_app
 from assistant_core.tasks.completion_turn import (
+    CompletionOutcome,
     CompletionTurn,
     install_completion_turn,
     reset_completion_turn,
@@ -81,12 +84,14 @@ from assistant_core.tasks.job_context import (
     reset_durable_job_context,
 )
 from assistant_core.tasks.progress import TaskProgressEmitter
+from assistant_core.tasks.queries import list_task_rows
 from assistant_core.tasks.runner import (
     WorkerContextRequest,
     install_worker_context,
     register_durable_jobs,
     reset_worker_context,
 )
+from assistant_core.tasks.service import has_active_task
 
 DURABLE_ASSISTANT_ID = "durable"
 DURABLE_SITE_ID = "synthetic"
@@ -172,14 +177,36 @@ class CarriedJobContext:
         return _scope()
 
 
+_SCHEMA_FUNCTION = re.compile(r"CREATE FUNCTION (procrastinate_\w+)")
+
+
 @pytest.fixture(scope="session")
 async def procrastinate_schema(patch_app_db_engine: None) -> None:
-    """Apply the host's queue schema once, so a beat has a row to write."""
+    """Apply the host's queue schema once, so a beat has a row to write.
+
+    A database that already holds a schema must hold every function the
+    installed procrastinate creates, or the suite stops before it runs.
+    """
     del patch_app_db_engine
     url = to_psycopg_url(get_runtime_settings().database_url)
     app = procrastinate.App(connector=procrastinate.PsycopgConnector(conninfo=url))
     async with app.open_async():
-        await app.schema_manager.apply_schema_async()
+        present = await app.connector.execute_query_one_async(
+            "SELECT to_regclass('procrastinate_jobs') IS NOT NULL AS present",
+        )
+        if not present["present"]:
+            await app.schema_manager.apply_schema_async()
+            return
+        rows = await app.connector.execute_query_all_async(
+            "SELECT proname FROM pg_proc WHERE proname LIKE 'procrastinate%%'",
+        )
+    expected = set(_SCHEMA_FUNCTION.findall(app.schema_manager.get_schema()))
+    missing = sorted(expected - {row["proname"] for row in rows})
+    if missing:
+        pytest.fail(
+            f"the database's procrastinate schema lacks {missing}: migrate it to "
+            f"procrastinate {procrastinate.__version__} before running the suite",
+        )
 
 
 @pytest.fixture
@@ -589,3 +616,113 @@ async def durable_runtime(
     reset_worker_context()
     reset_assistant_registry()
     reset_durable_job_context()
+
+
+HOST_TOOL = "install_upload"
+HOST_SECONDS = 600
+HOST_UPLOAD_ID = "u-17"
+# The lock the host names for one upload, which is not the thread's.
+HOST_LOCK = f"upload-install:{HOST_UPLOAD_ID}"
+
+
+@dataclass
+class HostRuns:
+    """What the host-started body saw of its own thread while it ran."""
+
+    fail_with: str = ""
+    active: list[bool] = field(default_factory=list)
+    listed: list[list[tuple[UUID, str]]] = field(default_factory=list)
+
+
+@dataclass(frozen=True, kw_only=True)
+class HostThread:
+    """The thread a host starts its task on, and the user who owns it."""
+
+    conversation_id: UUID
+    user_id: UUID
+
+
+@pytest.fixture
+def host_runs() -> HostRuns:
+    return HostRuns()
+
+
+@pytest.fixture
+def host_tool(empty_registry: None, host_runs: HostRuns) -> DurableTool:
+    """One host-started durable tool, with the body the worker runs."""
+    del empty_registry
+    tool = declare_durable_tool(
+        tool_name=HOST_TOOL,
+        estimated_duration_seconds=HOST_SECONDS,
+        host_started=True,
+    )
+
+    async def run(
+        *,
+        context: TurnContext,
+        task_id: UUID,
+        conversation_id: UUID,
+        progress: TaskProgressEmitter,
+        memory_store: object,
+        upload_id: str,
+    ) -> dict[str, Any]:
+        del task_id, memory_store
+        async with async_session_factory() as session:
+            host_runs.active.append(
+                await has_active_task(session, conversation_id, context.user_id),
+            )
+        listed = await list_task_rows(
+            conversation_id=conversation_id,
+            user_id=context.user_id,
+            statuses=None,
+        )
+        host_runs.listed.append([(row.id, row.status) for row in listed])
+        await progress.update(percent=0.5, message="Installing")
+        if host_runs.fail_with:
+            raise RuntimeError(host_runs.fail_with)
+        return {"upload_id": upload_id}
+
+    register_durable_impl(tool, run)
+    return tool
+
+
+@pytest.fixture
+async def host_thread(
+    db_cleaner: None,
+    patch_app_db_engine: None,
+) -> AsyncIterator[HostThread]:
+    """A thread with no turn on it, and the worker context a body runs under."""
+    del db_cleaner, patch_app_db_engine
+    thread = HostThread(conversation_id=uuid4(), user_id=uuid4())
+    await seed_thread(
+        conversation_id=thread.conversation_id,
+        user_id=thread.user_id,
+        site_id=DURABLE_SITE_ID,
+    )
+
+    async def build_context(request: WorkerContextRequest) -> TurnContext:
+        return TurnContext(
+            site_id=DURABLE_SITE_ID,
+            user_id=thread.user_id,
+            db_session_factory=async_session_factory,
+            cancel_event=asyncio.Event(),
+            memory_store=request.memory_store,
+        )
+
+    install_worker_context(build_context)
+    yield thread
+    reset_worker_context()
+
+
+@pytest.fixture
+def completion_turns(monkeypatch: pytest.MonkeyPatch) -> list[DurableTaskResult]:
+    """Every completion turn the runner opens, instead of a turn."""
+    opened: list[DurableTaskResult] = []
+
+    async def record(thread_id: str, result: DurableTaskResult) -> CompletionOutcome:
+        del thread_id
+        opened.append(result)
+        return CompletionOutcome()
+
+    monkeypatch.setattr(runner, "safe_completion_turn", record)
+    return opened

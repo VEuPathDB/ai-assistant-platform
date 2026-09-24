@@ -99,13 +99,13 @@ def _promote_tool(sentence: str, kind: str) -> Tool[AssistantDeps]:
         ctx: RunContext[AssistantDeps],
         note_id: str,
     ) -> ToolReturn[str | ScratchpadUnavailable]:
-        """Promote a scratchpad note to the user's long-term memory.
+        """Promote a note to the user's long-term memory.
 
         Use when a note holds something worth remembering after this
         conversation ends. The note's ``title`` / ``summary`` / ``body`` map
         one to one onto the memory's ``name`` / ``summary`` /
-        ``content.body``. The note stays where it is; a new cross-thread
-        memory is created.
+        ``content.body``. The note stays where it is; a new memory is created
+        that outlives this conversation.
         """
         return await promote_note(ctx, note_id, kind=kind)
 

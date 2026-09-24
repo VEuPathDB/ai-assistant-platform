@@ -30,9 +30,9 @@ from assistant_core.scratchpad.notebook import ScratchpadNotebook
 
 logger = get_logger(__name__)
 
-_MSG_MISSING_CTX = "scratchpad unavailable: missing conversation context"
+_MSG_MISSING_CTX = "notes unavailable: missing conversation context"
 _MSG_MEMORY_UNAVAILABLE = "memory store unavailable"
-_MSG_NO_SCRATCHPAD = "The scratchpad is unavailable on this thread"
+_MSG_NO_SCRATCHPAD = "Notes are unavailable on this conversation"
 
 
 class ScratchpadUnavailable(CamelModel):
@@ -90,7 +90,7 @@ async def note(
     *,
     pinned: bool = False,
 ) -> ToolReturn[dict[str, object] | ScratchpadUnavailable]:
-    """Save a scratchpad note.
+    """Save a note.
 
     Use liberally: before moving on from anything promising, save what you
     learned. Over-noting is cheaper than re-discovering. Keep ``summary`` to
@@ -238,9 +238,9 @@ async def list_notes(
 ) -> ToolReturn[NoteListResult | ScratchpadUnavailable]:
     """List notes (references only, no body). Optional tag and pin filter.
 
-    Returns an envelope ``{totalNotes, matches, summary}``. ``totalNotes`` is
-    the size of the whole scratchpad, so it separates "no matches" from
-    "empty scratchpad".
+    Returns an envelope ``{totalNotes, matches, summary}``. ``totalNotes`` counts
+    every note on this conversation, so it separates "no matches" from "no
+    notes yet".
     """
     notebook = _notebook(ctx)
     if notebook is None:
@@ -250,9 +250,9 @@ async def list_notes(
     matches = [NoteRef.model_validate(n, from_attributes=True) for n in notes]
     filter_desc = _filter_description(tag, pinned=pinned)
     if total == 0:
-        summary = "No notes saved in this scratchpad yet."
+        summary = "No notes saved on this conversation yet."
     elif not matches:
-        summary = f"No notes{filter_desc} (scratchpad has {total} notes total)."
+        summary = f"No notes{filter_desc} ({total} notes on this conversation)."
     else:
         summary = f"{len(matches)} of {total} notes{filter_desc}."
     return with_summary(
@@ -272,7 +272,7 @@ async def search_notes(
 
     Returns an envelope ``{totalNotes, query, matches, summary}``. An empty
     ``matches`` with ``totalNotes > 0`` means the query missed; with
-    ``totalNotes == 0`` it means the scratchpad is empty.
+    ``totalNotes == 0`` it means no note is saved yet.
     """
     notebook = _notebook(ctx)
     if notebook is None:
@@ -281,11 +281,11 @@ async def search_notes(
 
     matches = [NoteRef.model_validate(n, from_attributes=True) for n in hits]
     if total == 0:
-        summary = "No notes saved in this scratchpad yet."
+        summary = "No notes saved on this conversation yet."
     elif not matches:
         summary = (
             f"No notes match {query!r} "
-            f"(scratchpad has {total} notes total - try list_notes to browse)."
+            f"({total} notes on this conversation - try list_notes to browse)."
         )
     else:
         summary = f"{len(matches)} of {total} notes matched {query!r}."
@@ -324,7 +324,8 @@ async def promote_note(
 ) -> ToolReturn[str | ScratchpadUnavailable]:
     """Write one note to long-term memory under the kind the host named.
 
-    The note stays where it is; a new cross-thread memory is created.
+    The note stays where it is; a new memory is created that outlives this
+    conversation.
     """
     notebook = _notebook(ctx)
     if notebook is None:

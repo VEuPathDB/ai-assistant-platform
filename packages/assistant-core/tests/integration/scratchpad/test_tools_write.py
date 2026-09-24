@@ -191,5 +191,17 @@ async def test_a_turn_with_no_thread_refuses_instead_of_retrying() -> None:
     assert result.return_value.ok is False
     assert result.return_value.code == "NOT_FOUND"
     assert result.return_value.message == (
-        "scratchpad unavailable: missing conversation context"
+        "notes unavailable: missing conversation context"
     )
+    assert [
+        chunk.model_dump(by_alias=True, exclude_none=True) for chunk in result.metadata
+    ] == [
+        {
+            "type": "data-tool-summary",
+            "data": {
+                "toolCallId": "tc-1",
+                "summary": "Notes are unavailable on this conversation",
+                "status": "warn",
+            },
+        },
+    ]

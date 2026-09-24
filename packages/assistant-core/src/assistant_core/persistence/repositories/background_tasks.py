@@ -12,7 +12,7 @@ from typing import Any
 from uuid import UUID, uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
-from sqlalchemy import delete, select, text, update
+from sqlalchemy import delete, select, update
 
 from assistant_core.persistence.models import BackgroundTask
 from assistant_core.platform.db import DBSessionFactory
@@ -31,6 +31,7 @@ class TaskOutcome(BaseModel):
 
     id: UUID
     status: str
+    tool_call_id: str | None
     result: dict[str, Any] = Field(default_factory=dict)
     error: str = ""
 
@@ -49,12 +50,18 @@ class TaskOutcome(BaseModel):
         """Whether the tool reported a failure rather than a result."""
         return self.status == "failed"
 
+    @property
+    def host_started(self) -> bool:
+        """Whether a host started the task, so no call waits on its outcome."""
+        return self.tool_call_id is None
+
 
 class NewBackgroundTask(BaseModel):
-    """The durable call a turn defers, as the row records it.
+    """The durable task a turn or a host defers, as the row records it.
 
     ``phase_overrides`` is the deferring turn's per-role picks, so the turn
-    that answers the call resolves the same models.
+    that answers the call resolves the same models. A host-started task has
+    no ``tool_call_id``, because no call waits on it.
     """
 
     model_config = ConfigDict(frozen=True)
@@ -62,7 +69,7 @@ class NewBackgroundTask(BaseModel):
     conversation_id: UUID
     user_id: UUID
     tool_name: str
-    tool_call_id: str
+    tool_call_id: str | None
     args: dict[str, Any]
     estimated_duration_seconds: int
     phase_overrides: dict[str, Any]
@@ -163,7 +170,6 @@ class BackgroundTaskRepository:
             status="complete",
             completed_at=datetime.now(UTC),
         )
-        await self._notify_terminal(task_id=task_id)
 
     async def mark_failed(self, *, task_id: UUID, error: str) -> None:
         await self._set_values(
@@ -172,7 +178,6 @@ class BackgroundTaskRepository:
             error=error,
             completed_at=datetime.now(UTC),
         )
-        await self._notify_terminal(task_id=task_id)
 
     async def _set_values(self, task_id: UUID, **values: Any) -> None:
         async with self._session_factory() as session:
@@ -180,31 +185,6 @@ class BackgroundTaskRepository:
                 update(BackgroundTask)
                 .where(BackgroundTask.id == task_id)
                 .values(**values)
-            )
-            await session.commit()
-
-    async def _notify_terminal(self, *, task_id: UUID) -> None:
-        """Wake a stream listening on ``chat_events:<conversation_id>``.
-
-        A reader of the stream re-checks the task's status after every
-        notification, so a terminal task ends the wait at once.
-        """
-        async with self._session_factory() as session:
-            row = (
-                await session.execute(
-                    select(BackgroundTask.conversation_id).where(
-                        BackgroundTask.id == task_id
-                    )
-                )
-            ).scalar_one_or_none()
-            if row is None:
-                return
-            await session.execute(
-                text("SELECT pg_notify(:channel, :payload)"),
-                {
-                    "channel": f"chat_events:{row}",
-                    "payload": str(task_id),
-                },
             )
             await session.commit()
 

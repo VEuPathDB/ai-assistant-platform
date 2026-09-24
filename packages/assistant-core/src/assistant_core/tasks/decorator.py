@@ -7,7 +7,6 @@ the worker's completion opens a new turn carrying the result.
 
 from __future__ import annotations
 
-from asyncio import shield
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from functools import wraps
@@ -25,16 +24,13 @@ from pydantic import (
 )
 from pydantic_ai.exceptions import CallDeferred
 from pydantic_ai.tools import RunContext
-from sqlalchemy.exc import SQLAlchemyError
 
 from assistant_core.graph.stream_events import background_task_started_event
 from assistant_core.graph.turn_state import DurableDeferral
-from assistant_core.tasks.app import durable_task_queue, task_app
 from assistant_core.tasks.declaration import DurableTool, require_declared
-from assistant_core.tasks.payloads import DurableTaskPayload
 from assistant_core.tasks.service import (
     create_background_task,
-    discard_background_task,
+    defer_durable_job,
 )
 
 P = ParamSpec("P")
@@ -60,6 +56,17 @@ class DurableOutcome(BaseModel):
         return self.status == "success"
 
 
+class HostStartedDurableToolError(ValueError):
+    """An agent tool names a declaration only a host starts."""
+
+    def __init__(self, tool_name: str) -> None:
+        super().__init__(
+            f"durable tool {tool_name!r} is host-started: start it with "
+            "start_host_task(), not from an agent tool",
+        )
+        self.tool_name = tool_name
+
+
 class DurableIdentity(Protocol):
     """What a durable dispatch needs from an agent's deps."""
 
@@ -82,7 +89,8 @@ def durable_tool(
     ``tool`` is the value ``declare_durable_tool`` returned, so this call, the
     job the worker consumes and the registered body carry one name.
     """
-    require_declared(tool)
+    if require_declared(tool).host_started:
+        raise HostStartedDurableToolError(tool.tool_name)
 
     def decorator(
         fn: Callable[P, Awaitable[R]],
@@ -103,23 +111,13 @@ def durable_tool(
             )
             # The worker opens the completion turn on the thread's checkpoint,
             # so this job takes the lock a chat turn takes.
-            job = task_app().configure_task(
-                name=tool.job_name,
-                queue=durable_task_queue(),
-                lock=str(deps.conversation_id),
-            )
-            dispatched_payload = DurableTaskPayload.from_context(
+            await defer_durable_job(
+                tool,
                 task_id=task_id,
                 thread_id=deps.conversation_id,
                 args=tool_args,
+                lock=str(deps.conversation_id),
             )
-            try:
-                await job.defer_async(
-                    **dispatched_payload.model_dump(mode="json", by_alias=True),
-                )
-            except BaseException as refusal:
-                await _discard(task_id, refusal)
-                raise
             call.ctx.deps.durable_deferrals[call.tool_call_id] = DurableDeferral(
                 task_id=task_id,
                 tool_name=tool.tool_name,
@@ -139,18 +137,6 @@ def durable_tool(
         return wrapper
 
     return decorator
-
-
-async def _discard(task_id: UUID, refusal: BaseException) -> None:
-    """Remove the row of a call the queue did not take the job for.
-
-    The removal is shielded, so a cancelled defer strands nothing, and a
-    removal that fails rides the refusal instead of replacing it.
-    """
-    try:
-        await shield(discard_background_task(task_id=task_id))
-    except (OSError, SQLAlchemyError) as failure:
-        refusal.add_note(f"the durable task row was not removed: {failure}")
 
 
 @dataclass(frozen=True)
@@ -209,4 +195,9 @@ def _to_jsonable(value: Any) -> Any:
     return _ANY_JSON.dump_python(value, mode="json")
 
 
-__all__ = ["DurableIdentity", "DurableOutcome", "durable_tool"]
+__all__ = [
+    "DurableIdentity",
+    "DurableOutcome",
+    "HostStartedDurableToolError",
+    "durable_tool",
+]

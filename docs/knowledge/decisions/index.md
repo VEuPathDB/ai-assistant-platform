@@ -30,6 +30,7 @@ Choices made deliberately, each naming the alternative that was rejected and why
 - [The runtime defers onto the host's queue](the-runtime-defers-onto-the-hosts-queue.md) - the deferral, the parked call, the progress and the completion turn are the runtime's; the procrastinate application and four seams are installed by the host
 - [A durable tool is declared once](a-durable-tool-is-declared-once.md) - one declaration names the decorator, the job and the worker body, so the three strings cannot drift
 - [The host names the durable queue](the-host-names-the-durable-queue.md) - `install_task_app` carries the queue name, and the runtime's default says what runs on it
+- [A host-started task writes nothing to the thread](a-host-started-task-writes-nothing-to-the-thread.md) - a task no model call started defers under the host's lock, reports to `task_progress` only, opens no turn and is not an active task
 
 ## Persistence
 

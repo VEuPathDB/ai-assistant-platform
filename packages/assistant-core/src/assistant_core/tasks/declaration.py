@@ -25,11 +25,16 @@ type DurableToolImpl = Callable[..., Awaitable[Any]]
 
 @dataclass(frozen=True, kw_only=True)
 class DurableTool:
-    """A durable tool's name, its budget and the chunks its result carries."""
+    """A durable tool's name, its budget and the chunks its result carries.
+
+    A host-started tool is started by the host with ``start_host_task``, never
+    by a model call, so no turn waits on it and the thread never hears of it.
+    """
 
     tool_name: str
     estimated_duration_seconds: int
     chunks_from_result: ChunkBuilder | None = None
+    host_started: bool = False
 
     @property
     def job_name(self) -> str:
@@ -67,6 +72,7 @@ def declare_durable_tool(
     tool_name: str,
     estimated_duration_seconds: int,
     chunks_from_result: ChunkBuilder | None = None,
+    host_started: bool = False,
 ) -> DurableTool:
     """Declare one durable tool and return the value everything else reads.
 
@@ -79,6 +85,7 @@ def declare_durable_tool(
         tool_name=tool_name,
         estimated_duration_seconds=estimated_duration_seconds,
         chunks_from_result=chunks_from_result,
+        host_started=host_started,
     )
     _DECLARED[tool_name] = tool
     register_durable_tool(
@@ -108,6 +115,12 @@ def register_durable_impl(tool: DurableTool, impl: DurableToolImpl) -> None:
 def durable_impl(tool_name: str) -> DurableToolImpl | None:
     """The worker-side body registered for a tool name in this process."""
     return _IMPLS.get(tool_name)
+
+
+def is_host_started(tool_name: str) -> bool:
+    """Whether the tool of this name is declared here as host-started."""
+    found = _DECLARED.get(tool_name)
+    return found is not None and found.host_started
 
 
 def declared_durable_tools() -> tuple[DurableTool, ...]:
@@ -150,6 +163,7 @@ __all__ = [
     "declared_durable_tools",
     "durable_impl",
     "empty_durable_tools",
+    "is_host_started",
     "register_durable_impl",
     "require_declared",
 ]

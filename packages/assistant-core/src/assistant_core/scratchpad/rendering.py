@@ -6,7 +6,7 @@ from pydantic import BaseModel, ConfigDict
 
 from assistant_core.scratchpad.models import Note
 
-_EMPTY_BLOCK = "## Scratchpad (empty)\n\nNo notes yet."
+_EMPTY_BLOCK = "## Notes (empty)\n\nNo notes yet."
 
 
 class ScratchpadGuidance(BaseModel):
@@ -52,7 +52,7 @@ def render_scratchpad(
 
     pinned = [n for n in notes if n.pinned]
     recent = [n for n in notes if not n.pinned]
-    header = f"## Scratchpad ({total_count} notes, {len(pinned)} pinned)"
+    header = f"## Notes ({total_count} notes, {len(pinned)} pinned)"
 
     def _assemble(kept: list[Note]) -> str:
         sections: list[str] = [header]

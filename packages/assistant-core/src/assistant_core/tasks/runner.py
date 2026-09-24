@@ -2,8 +2,9 @@
 
 Looks up the registered body, builds the turn context the host supplies,
 runs the body, persists the result on the ``background_tasks`` row and opens
-the turn that answers the parked call. The sweep settles a task here too,
-when the worker that held it stopped.
+the turn that answers the parked call. A host-started task has no call to
+answer, so its row is settled here and the thread is never written. The
+sweep settles a task here too, when the worker that held it stopped.
 """
 
 from __future__ import annotations
@@ -44,6 +45,7 @@ from assistant_core.tasks.declaration import (
     DurableTool,
     declared_durable_tools,
     durable_impl,
+    is_host_started,
 )
 from assistant_core.tasks.job_context import durable_job_context
 from assistant_core.tasks.progress import TaskProgressEmitter
@@ -159,7 +161,9 @@ async def run_durable_task(
     capture_dir: str | None = None,
     job_context: JSONObject | None = None,
 ) -> None:
-    """Run one durable body on the worker and open the completion turn.
+    """Run one durable body on the worker and settle its outcome.
+
+    A task a turn started is answered by a completion turn.
 
     ``capture_dir`` re-installs the run's model capture, so the turn where the
     agent reads the result is recorded with the rest of the run.
@@ -191,6 +195,7 @@ async def _run_durable_task_inner(
 ) -> None:
     task_uuid = UUID(task_id)
     chat_uuid = UUID(thread_id)
+    host_started = is_host_started(tool_name)
     repo = BackgroundTaskRepository(session_factory=async_session_factory)
     await repo.mark_running(task_id=task_uuid)
 
@@ -204,6 +209,7 @@ async def _run_durable_task_inner(
             conversation_id=chat_uuid,
             error=error,
             job_context=job_context,
+            host_started=host_started,
         )
         return
 
@@ -211,6 +217,7 @@ async def _run_durable_task_inner(
         task_id=task_uuid,
         conversation_id=chat_uuid,
         session_factory=async_session_factory,
+        on_thread=not host_started,
     )
 
     settings = get_runtime_settings()
@@ -248,11 +255,15 @@ async def _run_durable_task_inner(
             conversation_id=chat_uuid,
             error=str(exc) or exc.__class__.__name__,
             job_context=job_context,
+            host_started=host_started,
         )
         return
 
     result = _to_dict(payload)
     await repo.mark_result_ready(task_id=task_uuid, result=result)
+    if host_started:
+        await repo.mark_complete(task_id=task_uuid)
+        return
     await _announce_completion(chat_uuid, task_uuid, "success", None)
     await _answer_and_settle(
         repo,
@@ -281,6 +292,9 @@ async def settle_unfinished_task(
     if row is None:
         return
     outcome = TaskOutcome.model_validate(row)
+    if outcome.host_started:
+        await _settle_host_task(repo, outcome=outcome, error=error)
+        return
     if outcome.status not in ACTIVE_TASK_STATES:
         await _answer_and_settle(
             repo,
@@ -297,6 +311,7 @@ async def settle_unfinished_task(
             conversation_id=conversation_id,
             error=error,
             job_context=job_context,
+            host_started=False,
         )
         return
     # A row that recorded a failure is closed, so what an open row records is
@@ -311,6 +326,25 @@ async def settle_unfinished_task(
     )
 
 
+async def _settle_host_task(
+    repo: BackgroundTaskRepository,
+    *,
+    outcome: TaskOutcome,
+    error: str,
+) -> None:
+    """Close a host-started row that is still open, and write nothing else.
+
+    A recorded result completes the row. A row that recorded nothing fails
+    with the reason.
+    """
+    if outcome.status not in ACTIVE_TASK_STATES:
+        return
+    if outcome.status in REPORTED_TASK_STATES:
+        await repo.mark_complete(task_id=outcome.id)
+        return
+    await repo.mark_failed(task_id=outcome.id, error=error)
+
+
 async def _fail_task(
     repo: BackgroundTaskRepository,
     *,
@@ -318,9 +352,12 @@ async def _fail_task(
     conversation_id: UUID,
     error: str,
     job_context: JSONObject,
+    host_started: bool,
 ) -> None:
-    """Fail one task's row, tell the thread, and answer the call it parked."""
+    """Fail one task's row. For a task a turn started, tell the thread and answer its call."""
     await repo.mark_failed(task_id=task_id, error=error)
+    if host_started:
+        return
     await _announce_completion(conversation_id, task_id, "failed", error)
     await _answer_and_settle(
         repo,

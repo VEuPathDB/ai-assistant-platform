@@ -27,7 +27,7 @@ that closes the turn it attached to. The response carries
 A tail with nothing to follow is a choice the host makes, not the runtime:
 `conversation.event_stream.latest_event(conversation_id)` says whether the
 newest chunk closed a turn, and `tasks.service.has_active_task` whether a
-durable task will write more.
+durable task a turn started will write more.
 
 # The one write
 

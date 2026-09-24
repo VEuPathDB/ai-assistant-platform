@@ -43,15 +43,14 @@ def _note(
 def test_an_empty_scratchpad_says_so_and_carries_the_hosts_empty_guidance() -> None:
     out = render_scratchpad([], total_count=0, guidance=GUIDANCE)
 
-    assert out.startswith("## Scratchpad (empty)")
-    assert "No notes yet." in out
+    assert out.startswith("## Notes (empty)\n\nNo notes yet.")
     assert out.endswith("Save the runs you tried and the dead ends you found.")
 
 
 def test_a_host_that_supplies_no_guidance_gets_the_index_alone() -> None:
     out = render_scratchpad([], total_count=0)
 
-    assert out == "## Scratchpad (empty)\n\nNo notes yet."
+    assert out == "## Notes (empty)\n\nNo notes yet."
 
 
 def test_the_header_counts_every_note_and_the_pinned_ones() -> None:
@@ -62,7 +61,7 @@ def test_the_header_counts_every_note_and_the_pinned_ones() -> None:
 
     out = render_scratchpad(notes, total_count=7, guidance=GUIDANCE)
 
-    assert out.startswith("## Scratchpad (7 notes, 1 pinned)")
+    assert out.startswith("## Notes (7 notes, 1 pinned)\n")
 
 
 def test_a_populated_index_lists_both_sections_with_ids_and_summaries() -> None:
@@ -86,7 +85,7 @@ def test_the_budget_drops_the_oldest_unpinned_notes() -> None:
 
     out = render_scratchpad(notes, total_count=5, budget_chars=120)
 
-    assert len(out) == 106
+    assert len(out) == 101
     assert [f"T{i}" for i in range(5) if f"T{i}" in out] == ["T0", "T1"]
 
 
@@ -98,6 +97,6 @@ def test_the_budget_never_drops_a_pinned_note() -> None:
 
     out = render_scratchpad(notes, total_count=6, budget_chars=50)
 
-    assert len(out) == 81
+    assert len(out) == 76
     assert "PINNED_KEEP" in out
     assert [f"T{i}" for i in range(5) if f"T{i}" in out] == []

@@ -156,3 +156,20 @@ async def test_a_child_that_scopes_nothing_keeps_the_bare_task_id(
     await parent.scoped()._thread_log.offer(_row(0.0))
 
     assert [chunk["id"] for chunk in written] == [str(task_id)]
+
+
+async def test_an_emitter_off_the_thread_appends_nothing_nor_does_its_child(
+    written: list[dict[str, Any]],
+) -> None:
+    emitter = TaskProgressEmitter(
+        task_id=uuid4(),
+        conversation_id=uuid4(),
+        session_factory=_no_session,
+        batch_size=10,
+        on_thread=False,
+    )
+
+    await emitter.update(percent=0.10, message="installing")
+    await emitter.scoped(variantId="v0").update(percent=0.20, message="installing")
+
+    assert written == []

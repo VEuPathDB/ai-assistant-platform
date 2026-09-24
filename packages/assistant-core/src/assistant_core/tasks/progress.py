@@ -1,9 +1,9 @@
 """A durable task's incremental progress, on two channels.
 
 The worker persists every update to ``task_progress`` and fires a
-``pg_notify`` on ``task_progress:<conversation_id>``, and it appends a
-coalesced subset to the thread's own log so a reader of the main stream sees
-the task advance.
+``pg_notify`` on ``task_progress:<conversation_id>``. For a task a turn
+started, it also appends a coalesced subset to the thread's own log, so a
+reader of the main stream sees the task advance.
 """
 
 from __future__ import annotations
@@ -104,6 +104,7 @@ class TaskProgressEmitter:
 
     :meth:`scoped` derives a child emitter that tags every payload with a
     fixed scope, so each branch of a fan-out reports in a lane of its own.
+    ``on_thread=False`` keeps every update off the thread's log.
     """
 
     task_id: UUID
@@ -111,15 +112,22 @@ class TaskProgressEmitter:
     session_factory: DBSessionFactory
     batch_size: int = 1
     max_flush_interval_seconds: float = 1.0
+    on_thread: bool = True
     _scope_data: dict[str, Any] = field(default_factory=dict)
     _buffer: list[_PendingProgress] = field(default_factory=list)
     _last_flush_monotonic: float = field(default=0.0)
-    _thread_log: _ThreadLog = field(init=False)
+    _thread_log: _ThreadLog | None = field(init=False)
 
     def __post_init__(self) -> None:
-        self._thread_log = _ThreadLog(
+        self._thread_log = self._thread_log_for(lane=None)
+
+    def _thread_log_for(self, *, lane: str | None) -> _ThreadLog | None:
+        if not self.on_thread:
+            return None
+        return _ThreadLog(
             conversation_id=self.conversation_id,
             task_id=self.task_id,
+            lane=lane,
         )
 
     def scoped(self, **scope: Any) -> TaskProgressEmitter:
@@ -134,13 +142,10 @@ class TaskProgressEmitter:
             session_factory=self.session_factory,
             batch_size=self.batch_size,
             max_flush_interval_seconds=self.max_flush_interval_seconds,
+            on_thread=self.on_thread,
         )
         child._scope_data = {**self._scope_data, **scope}
-        child._thread_log = _ThreadLog(
-            conversation_id=self.conversation_id,
-            task_id=self.task_id,
-            lane=_lane_of(child._scope_data),
-        )
+        child._thread_log = child._thread_log_for(lane=_lane_of(child._scope_data))
         return child
 
     async def update(
@@ -166,7 +171,8 @@ class TaskProgressEmitter:
         )
         if should_flush:
             await self.flush()
-        await self._thread_log.offer(row)
+        if self._thread_log is not None:
+            await self._thread_log.offer(row)
 
     async def flush(self) -> None:
         """Commit every buffered row and fire one notification."""
@@ -197,7 +203,8 @@ class TaskProgressEmitter:
 
     async def aclose(self) -> None:
         await self.flush()
-        await self._thread_log.write_last()
+        if self._thread_log is not None:
+            await self._thread_log.write_last()
 
 
 __all__ = ["TaskProgressEmitter"]

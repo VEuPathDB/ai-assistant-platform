@@ -17,10 +17,10 @@ from pydantic_ai.exceptions import CallDeferred
 from sqlalchemy.exc import SQLAlchemyError
 
 from assistant_core.graph.turn_state import DurableDeferral
-from assistant_core.tasks import decorator
+from assistant_core.tasks import decorator, service
 from assistant_core.tasks.app import install_task_app, reset_task_app
 from assistant_core.tasks.declaration import declare_durable_tool, empty_durable_tools
-from assistant_core.tasks.decorator import durable_tool
+from assistant_core.tasks.decorator import HostStartedDurableToolError, durable_tool
 
 CRUNCH_SECONDS = 30
 REFUSAL = "the queue is not reachable"
@@ -83,7 +83,7 @@ def rows(monkeypatch: pytest.MonkeyPatch) -> list[UUID]:
         written.remove(task_id)
 
     monkeypatch.setattr(decorator, "create_background_task", fake_create)
-    monkeypatch.setattr(decorator, "discard_background_task", fake_discard)
+    monkeypatch.setattr(service, "discard_background_task", fake_discard)
     return written
 
 
@@ -241,7 +241,7 @@ async def test_a_removal_that_fails_rides_the_error_the_queue_raised(
         del task_id
         raise SQLAlchemyError(DATABASE_REFUSAL)
 
-    monkeypatch.setattr(decorator, "discard_background_task", failing_discard)
+    monkeypatch.setattr(service, "discard_background_task", failing_discard)
 
     with pytest.raises(ConnectorException) as caught:
         await crunch(_context(), n=2)
@@ -265,7 +265,7 @@ async def test_a_second_cancellation_does_not_interrupt_the_removal(
         await sleep(SLOW_DISCARD_SECONDS)
         rows.remove(task_id)
 
-    monkeypatch.setattr(decorator, "discard_background_task", slow_discard)
+    monkeypatch.setattr(service, "discard_background_task", slow_discard)
     call = create_task(crunch(_context(), n=2))
     await sleep(SLOW_DISCARD_SECONDS)
 
@@ -278,3 +278,20 @@ async def test_a_second_cancellation_does_not_interrupt_the_removal(
     await sleep(SLOW_DISCARD_SECONDS * 4)
 
     assert rows == []
+
+
+def test_the_decorator_refuses_a_host_started_declaration() -> None:
+    with empty_durable_tools():
+        tool = declare_durable_tool(
+            tool_name="install_upload",
+            estimated_duration_seconds=CRUNCH_SECONDS,
+            host_started=True,
+        )
+
+        with pytest.raises(HostStartedDurableToolError) as caught:
+            durable_tool(tool)
+
+    assert str(caught.value) == (
+        "durable tool 'install_upload' is host-started: start it with "
+        "start_host_task(), not from an agent tool"
+    )
