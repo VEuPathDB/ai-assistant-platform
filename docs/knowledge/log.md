@@ -1,5 +1,19 @@
 # Log
 
+## 2026-09-27
+
+The repetition guard stops a run only on a call the model made after it read
+the warning. `ToolRepetitionGuard.check` takes `run_step`, a required keyword,
+and `RepetitionGuard.wrap_tool_execute` passes `RunContext.run_step`, which
+every call of one model response shares. Each rule records the step of its
+first refusal, per tool for a cap and per streak for identical arguments, and
+escalates only when a later step refuses again; the other calls of the warned
+response get the warning. Before this, a response with ten parallel calls to a
+tool capped at eight got the warning on the ninth and the stop on the tenth.
+The guard names the rule that stopped the run in `stopped_rule` beside
+`stopped_call_id`, so a host can word a cap stop apart from a repeat stop.
+`assistant-core` is 0.3.0a20.
+
 ## 2026-09-24
 
 Every monthly usage row names who paid. `assistant_core.platform.types.PaidBy`

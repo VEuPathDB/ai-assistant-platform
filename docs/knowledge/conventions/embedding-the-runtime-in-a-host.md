@@ -152,11 +152,14 @@ turn on the agent's deps, run before every tool call by the capability
 | `call_caps` | The call past a tool's cap is refused, whatever the arguments. The count is a per-run budget: no intervening call resets it. |
 
 Both refusals are the tool's own result and never a `ModelRetry`, so a tool
-that already retried keeps its retry budget. The second refusal of either rule
-names its call in `stopped_call_id`, and the turn ends once that call's result
-has reached the client. `REPETITION_MARKER` opens the first refusal and
-`CALL_CAP_MARKER` the second, so a reader of a captured run tells the two
-apart.
+that already retried keeps its retry budget. `check` takes the run step of the
+call (`RunContext.run_step`, one per model request); every refusal of a rule in
+the step of its first refusal is the warning again, because the model has read
+none of them. The first refusal of a rule in a later step names its call in
+`stopped_call_id` and its rule in `stopped_rule`, and the turn ends once that
+call's result has reached the client. The first sentence of the
+identical-arguments refusal holds `REPETITION_MARKER` and that of the cap
+refusal `CALL_CAP_MARKER`, so a reader of a captured run tells the two apart.
 
 `memory.retrieval.retrieve_relevant_memories` takes one
 `memory.retrieval.RetrievalScope`, the five values a caller states together:

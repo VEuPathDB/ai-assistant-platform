@@ -3,9 +3,9 @@
 After a tool result an agent can fall into a tight loop reading the same
 read-only tool. ``request_limit`` eventually catches this, but by then
 hundreds of tokens are burned. The guard refuses the Nth consecutive identical
-call, and ends the run if the model makes it again. It also refuses a call
-past a tool's per-run cap, whatever the arguments: a run that retypes its
-query is a loop the identical-arguments rule never sees.
+call, and ends the run if the model makes it again in a later request. It also
+refuses a call past a tool's per-run cap, whatever the arguments: a run that
+retypes its query is a loop the identical-arguments rule never sees.
 
 The tool names are the product's, so the guard is constructed with them; a
 guard built with no vocabulary and no caps never blocks.
@@ -105,7 +105,10 @@ class ToolRepetitionGuard:
     _last_fingerprint: str = field(default="", init=False, repr=False)
     _consecutive_count: int = field(default=0, init=False, repr=False)
     _total_blocked: int = field(default=0, init=False, repr=False)
+    _cap_warned_at: dict[str, int] = field(default_factory=dict, init=False, repr=False)
+    _repeat_warned_at: int | None = field(default=None, init=False, repr=False)
     _stopped_call_id: str = field(default="", init=False, repr=False)
+    _stopped_rule: BlockRule | None = field(default=None, init=False, repr=False)
 
     def __post_init__(self) -> None:
         negative = sorted(name for name, cap in self.call_caps.items() if cap < 0)
@@ -126,10 +129,21 @@ class ToolRepetitionGuard:
         """
         return self._stopped_call_id
 
+    @property
+    def stopped_rule(self) -> BlockRule | None:
+        """The rule that refused ``stopped_call_id``, None while the run may go on."""
+        return self._stopped_rule
+
     def _reset(self) -> None:
         self._last_tool = ""
         self._last_fingerprint = ""
         self._consecutive_count = 0
+        self._repeat_warned_at = None
+
+    def _stop(self, tool_call_id: str, rule: BlockRule) -> None:
+        if not self._stopped_call_id:
+            self._stopped_call_id = tool_call_id
+            self._stopped_rule = rule
 
     def check(
         self,
@@ -137,13 +151,18 @@ class ToolRepetitionGuard:
         tool_args: object,
         *,
         tool_call_id: str = "",
+        run_step: int,
     ) -> RepetitionBlock | None:
         """Return ``None`` to proceed, or the block that refuses the call.
 
         A tool outside the vocabulary is progress, so it clears the streak. A
         cap is a budget and not a streak: an intervening call never resets it.
+        A block ends the run only when ``run_step`` is later than its rule's first
+        block, so every call of the warned model response gets the warning.
         """
-        capped = self._check_cap(tool_name, tool_call_id=tool_call_id)
+        capped = self._check_cap(
+            tool_name, tool_call_id=tool_call_id, run_step=run_step
+        )
         if capped is not None:
             return capped
         if tool_name not in self.read_only_tools:
@@ -154,6 +173,7 @@ class ToolRepetitionGuard:
         if tool_name == self._last_tool and fingerprint == self._last_fingerprint:
             self._consecutive_count += 1
         else:
+            self._repeat_warned_at = None
             self._last_tool = tool_name
             self._last_fingerprint = fingerprint
             self._consecutive_count = 1
@@ -161,9 +181,11 @@ class ToolRepetitionGuard:
         if self._consecutive_count < self.threshold:
             return None
         self._total_blocked += 1
-        escalated = self._consecutive_count > self.threshold
-        if escalated and not self._stopped_call_id:
-            self._stopped_call_id = tool_call_id
+        if self._repeat_warned_at is None:
+            self._repeat_warned_at = run_step
+        escalated = run_step > self._repeat_warned_at
+        if escalated:
+            self._stop(tool_call_id, "identical_arguments")
         return RepetitionBlock(
             tool_name=tool_name,
             count=self._consecutive_count,
@@ -176,6 +198,7 @@ class ToolRepetitionGuard:
         tool_name: str,
         *,
         tool_call_id: str,
+        run_step: int,
     ) -> RepetitionBlock | None:
         if tool_name not in self.call_caps:
             return None
@@ -185,9 +208,9 @@ class ToolRepetitionGuard:
         if count <= cap:
             return None
         self._total_blocked += 1
-        escalated = count > cap + 1
-        if escalated and not self._stopped_call_id:
-            self._stopped_call_id = tool_call_id
+        escalated = run_step > self._cap_warned_at.setdefault(tool_name, run_step)
+        if escalated:
+            self._stop(tool_call_id, "call_cap")
         return RepetitionBlock(
             tool_name=tool_name,
             count=count,
@@ -203,8 +226,8 @@ class RepetitionGuard(AbstractCapability[object]):
     A block returns the refusal as the tool's result, never as ``ModelRetry``:
     a retry raised here shares the tool's retry budget, so a tool that already
     retried once would abort the whole run on the guard's first nudge. A first
-    block is a result the model can route around; a second block on the same
-    call ends the run via ``guard.stopped_call_id``.
+    block is a result the model can route around; a block in a later model
+    request ends the run via ``guard.stopped_call_id``.
     """
 
     guard: ToolRepetitionGuard = field(default_factory=ToolRepetitionGuard)
@@ -218,8 +241,13 @@ class RepetitionGuard(AbstractCapability[object]):
         args: dict[str, Any],
         handler: WrapToolExecuteHandler,
     ) -> Any:
-        del ctx, tool_def
-        block = self.guard.check(call.tool_name, args, tool_call_id=call.tool_call_id)
+        del tool_def
+        block = self.guard.check(
+            call.tool_name,
+            args,
+            tool_call_id=call.tool_call_id,
+            run_step=ctx.run_step,
+        )
         if block is None:
             return await handler(args)
         return block.message
