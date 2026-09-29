@@ -9,6 +9,11 @@ from uuid import UUID
 import asyncpg
 import procrastinate
 import pytest
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+from opentelemetry.sdk.trace.export.in_memory_span_exporter import (
+    InMemorySpanExporter,
+)
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import func, select, text
 from sqlalchemy.engine import make_url
@@ -30,6 +35,10 @@ from assistant_core.persistence.models import (
 )
 from assistant_core.platform.config import get_runtime_settings
 from assistant_core.platform.db import async_session_factory
+from assistant_core.platform.observability import (
+    install_tracer_provider,
+    reset_tracer_provider,
+)
 from assistant_core.tasks.app import install_task_app, reset_task_app
 from assistant_core.tasks.declaration import DurableTool
 from assistant_core.tasks.host_task import start_host_task
@@ -171,6 +180,33 @@ async def test_a_host_task_that_succeeds_is_complete_with_no_turn_and_no_chunk(
     assert completion_turns == []
     assert await _progress_messages(task_id) == ["Installing"]
     assert await _event_count(host_thread.conversation_id) == 0
+
+
+async def test_a_durable_body_runs_under_a_root_span_on_its_thread(
+    host_tool: DurableTool,
+    host_thread: HostThread,
+    host_queue: procrastinate.App,
+    completion_turns: list[DurableTaskResult],
+) -> None:
+    del completion_turns
+    exporter = InMemorySpanExporter()
+    provider = TracerProvider()
+    provider.add_span_processor(SimpleSpanProcessor(exporter))
+    install_tracer_provider(provider, include_content=False)
+    try:
+        task_id = await _start(host_tool, host_thread)
+        await _run_stored_job(host_queue, task_id)
+    finally:
+        reset_tracer_provider()
+        provider.shutdown()
+
+    roots = [span for span in exporter.get_finished_spans() if span.parent is None]
+    assert [span.name for span in roots] == [HOST_TOOL]
+    attributes = dict(roots[0].attributes or {})
+    assert attributes["session.id"] == str(host_thread.conversation_id)
+    assert attributes["user.id"] == str(host_thread.user_id)
+    assert attributes["langfuse.trace.tags"] == ("durable-task",)
+    assert attributes["langfuse.trace.metadata.task_id"] == str(task_id)
 
 
 async def test_a_host_task_that_fails_carries_its_error_and_no_chunk(

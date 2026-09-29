@@ -56,18 +56,34 @@ def _format_notes_for_compactor(notes: list[Note]) -> str:
     return "\n".join(lines)
 
 
-def _enforce_budget(
+class CompactionOverBudgetError(Exception):
+    """The replacement notes exceed the token ceiling, so none is written.
+
+    The caller that ran the compaction handles it; it never crosses a transport.
+    """
+
+    def __init__(self, *, tokens: int, threshold: int) -> None:
+        super().__init__(
+            f"compaction wrote {tokens} tokens of notes, over the ceiling of {threshold}"
+        )
+        self.tokens = tokens
+        self.threshold = threshold
+
+
+def _within_budget(
     new_notes: list[NoteCreate],
     *,
     threshold_tokens: int,
 ) -> list[NoteCreate]:
-    """Drop the oldest replacements until the set fits the token ceiling."""
-    trimmed = list(new_notes)
-    while (
-        trimmed and sum(approx_body_tokens(n.body) for n in trimmed) > threshold_tokens
-    ):
-        trimmed.pop(0)
-    return trimmed
+    """The replacement set when it fits the token ceiling.
+
+    A set over the ceiling is refused whole: a trimmed set would drop notes
+    the model was made to keep, and the notes it replaces stay as they are.
+    """
+    tokens = sum(approx_body_tokens(n.body) for n in new_notes)
+    if tokens > threshold_tokens:
+        raise CompactionOverBudgetError(tokens=tokens, threshold=threshold_tokens)
+    return list(new_notes)
 
 
 def _trigger_reason(
@@ -119,7 +135,7 @@ async def compact_scratchpad(
     )
 
     run = await notebook.commit_compaction(
-        _enforce_budget(result.output.notes, threshold_tokens=tokens_threshold),
+        _within_budget(result.output.notes, threshold_tokens=tokens_threshold),
         CompactionFacts(
             triggered_at=datetime.now(UTC),
             before_count=totals.total_count,

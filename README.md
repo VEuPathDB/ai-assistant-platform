@@ -136,6 +136,21 @@ runtime raises across that surface (`ConversationNotFoundError`,
 `ConversationForbiddenError`, `TurnStillRunningError`). None of them names an
 HTTP status; a host maps them onto its own transport.
 
+## Tracing is installed per process
+
+`assistant_core.platform.observability.install_observability(service_name=...,
+service_version=..., environment=..., include_content=...)` exports the process's
+traces over OTLP/HTTP to the endpoint the standard `OTEL_EXPORTER_OTLP_ENDPOINT` (or
+`_TRACES_ENDPOINT`) names, with the headers `OTEL_EXPORTER_OTLP_HEADERS` names plus
+any the host passes as `exporter_headers`; with no endpoint it installs nothing.
+It instruments every agent run and both httpx distributions, and the SQLAlchemy
+engine a host passes. Metrics export only when `OTEL_EXPORTER_OTLP_METRICS_ENDPOINT`
+is set. A host runs each turn under `traced(TraceScope(...))`, one root span that
+carries `session.id` (the conversation) and `user.id` on every span beneath it, and
+reads the turn's id back with `current_trace_id()`. A durable body runs under a
+root span of its own, named after its tool, on the same session. A priced model
+request is exported with `gen_ai.usage.cost`, the price the runtime charged.
+
 ## PROTOCOL.md is the contract
 
 [`PROTOCOL.md`](packages/assistant-core/src/assistant_core/PROTOCOL.md) is the

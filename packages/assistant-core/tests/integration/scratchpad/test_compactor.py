@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from uuid import UUID
 
+import pytest
 from pydantic_ai import Agent
 from pydantic_ai.models.test import TestModel
 from sqlalchemy import select
@@ -13,6 +14,7 @@ from assistant_core.persistence.models import ScratchpadCompaction
 from assistant_core.persistence.repositories.scratchpad import ScratchpadRepository
 from assistant_core.platform.db import DBSessionFactory
 from assistant_core.scratchpad.compactor import (
+    CompactionOverBudgetError,
     CompactionResult,
     CompactorDeps,
     compact_scratchpad,
@@ -147,35 +149,37 @@ async def test_a_run_over_both_ceilings_names_both(
     assert run.trigger_reason == "both"
 
 
-async def test_the_replacement_set_is_trimmed_to_the_token_ceiling(
+async def test_a_replacement_set_over_the_token_ceiling_is_refused_whole(
     db_session: AsyncSession,
     db_session_factory: DBSessionFactory,
     conversation_id: UUID,
 ) -> None:
-    """The oldest replacement goes first, so the notebook lands under budget."""
+    """No replacement is written and the notes it would replace stay."""
     await _fill(db_session, conversation_id, 3)
     oversized = CompactionResult(
         notes=[
-            NoteCreate(title="dropped", summary="s", body="x" * 400),
-            NoteCreate(title="kept", summary="s", body="y" * 400),
+            NoteCreate(title="first", summary="s", body="x" * 400),
+            NoteCreate(title="second", summary="s", body="y" * 400),
         ],
     )
 
-    run = await compact_scratchpad(
-        conversation_id=conversation_id,
-        db_session_factory=db_session_factory,
-        agent=lambda: _agent(oversized),
-        count_threshold=2,
-        tokens_threshold=100,
-    )
+    with pytest.raises(CompactionOverBudgetError) as refused:
+        await compact_scratchpad(
+            conversation_id=conversation_id,
+            db_session_factory=db_session_factory,
+            agent=lambda: _agent(oversized),
+            count_threshold=2,
+            tokens_threshold=100,
+        )
 
-    assert run is not None
+    assert refused.value.threshold == 100
+    assert refused.value.tokens > 100
     async with db_session_factory() as session:
         remaining = await ScratchpadRepository(session).list_notes(
             conversation_id=conversation_id,
             limit=100,
         )
-    assert [note.title for note in remaining] == ["kept"]
+    assert sorted(note.title for note in remaining) == ["t0", "t1", "t2"]
 
 
 async def test_a_run_is_logged_with_the_sizes_it_started_and_ended_at(

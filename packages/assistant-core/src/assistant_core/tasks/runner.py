@@ -35,6 +35,7 @@ from assistant_core.persistence.repositories.background_tasks import (
 from assistant_core.platform.config import get_runtime_settings
 from assistant_core.platform.db import async_session_factory
 from assistant_core.platform.logging import get_logger
+from assistant_core.platform.observability import TraceScope, traced
 from assistant_core.platform.types import JSONObject
 from assistant_core.tasks.app import durable_task_queue
 from assistant_core.tasks.completion_turn import (
@@ -237,14 +238,15 @@ async def _run_durable_task_inner(
             )
             async with attach_user_id(context.user_id):
                 try:
-                    payload = await impl(
-                        context=context,
-                        task_id=task_uuid,
-                        conversation_id=chat_uuid,
-                        progress=progress,
-                        memory_store=mem_store,
-                        **args.get("kwargs", {}),
-                    )
+                    with traced(_task_scope(tool_name, chat_uuid, task_uuid, context)):
+                        payload = await impl(
+                            context=context,
+                            task_id=task_uuid,
+                            conversation_id=chat_uuid,
+                            progress=progress,
+                            memory_store=mem_store,
+                            **args.get("kwargs", {}),
+                        )
                 finally:
                     await progress.aclose()
     except Exception as exc:  # the worker records every failure
@@ -271,6 +273,22 @@ async def _run_durable_task_inner(
         result=DurableTaskResult(task_id=task_uuid, status="success", result=result),
         fallback=(task_uuid,),
         job_context=job_context,
+    )
+
+
+def _task_scope(
+    tool_name: str,
+    conversation_id: UUID,
+    task_id: UUID,
+    context: TurnContext,
+) -> TraceScope:
+    """A durable body's own trace, on the session of the thread that deferred it."""
+    return TraceScope(
+        name=tool_name,
+        session_id=conversation_id,
+        user_id=context.user_id,
+        tags=("durable-task",),
+        metadata={"task_id": str(task_id), "site_id": context.site_id},
     )
 
 

@@ -1,5 +1,31 @@
 # Log
 
+## 2026-09-28
+
+Tracing is the runtime's, installed once per process.
+`assistant_core.platform.observability.install_observability` reads the
+standard `OTEL_EXPORTER_OTLP_*` variables and nothing vendor-specific; without
+an endpoint it installs nothing and returns `False`, and with one it installs
+the tracer provider, `Agent.instrument_all` with the host's `include_content`,
+the two httpx distributions, and SQLAlchemy when the host passes an engine.
+The protocol must be `http/protobuf`. `traced(TraceScope)` opens one root span
+per turn and stamps `session.id` and `user.id` on every span beneath it, so a
+backend groups a turn's model calls, tool calls and cost under the conversation
+and the researcher; `current_trace_id` gives the host the id its message row
+records. `PricedSpanExporter` copies pydantic-ai's `operation.cost` onto
+`gen_ai.usage.cost`, so the exported cost is the one the runtime metered and no
+backend price table is needed. The durable runner runs each durable body under
+its own root span on the same session. A host that runs turns in a worker
+installs tracing there; a host that installs it only in its API process traces
+no model call.
+
+A compaction whose replacement notes exceed the token ceiling is refused whole
+with `CompactionOverBudgetError`, and the notes it would replace stay. The set
+was trimmed from the oldest replacement before, which dropped notes the
+compactor's own validator had accepted.
+
+`assistant-core` is 0.3.0a21.
+
 ## 2026-09-27
 
 The repetition guard stops a run only on a call the model made after it read
