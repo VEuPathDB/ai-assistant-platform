@@ -12,8 +12,12 @@
   sections separated by a rule line. `is_section_update` and `briefing_now` read
   it in either voice, and compaction carries it in either. The scripted model
   declares inline system prompts, so its scripts read the history OpenAI reads.
+- A note is valid only in the run that sent it. A note names its run in
+  `dynamic_ref`, and each request drops the section notes of earlier runs: a new
+  run's instructions already hold every section as it stands, and a note of an
+  earlier run would contradict them.
 
-`assistant-core` is 0.3.0a24.
+`assistant-core` is 0.3.0a25.
 
 ## 2026-10-04
 

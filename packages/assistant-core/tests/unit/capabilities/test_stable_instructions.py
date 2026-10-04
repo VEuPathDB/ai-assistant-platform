@@ -254,3 +254,36 @@ def test_a_section_the_run_began_without_joins_the_end_of_the_briefing() -> None
     assert briefing_now(_PINNED, updates).endswith(
         "## Notes (0 notes)\nnone\n\n## Draft\nopen"
     )
+
+
+async def test_a_later_run_reads_no_note_an_earlier_run_sent() -> None:
+    """A new run's instructions hold every section as it stands, so a note left
+    by an earlier run would only contradict them."""
+    board = _Board()
+    agent = _agent(board, calls=1)
+    first = await agent.run("go", deps=board)
+    board.seen.clear()
+
+    await agent.run("again", deps=board, message_history=first.all_messages())
+
+    notes = [
+        part.content
+        for message in board.seen[0][1]
+        if isinstance(message, ModelRequest)
+        for part in message.parts
+        if isinstance(part, SystemPromptPart)
+    ]
+    assert notes == []
+    assert "## Stage\nbuilt" in board.seen[0][0]
+
+
+async def test_a_later_run_keeps_the_notes_it_sends_itself() -> None:
+    board = _Board()
+    agent = _agent(board, calls=1)
+    first = await agent.run("go", deps=board)
+    board.seen.clear()
+    board.stage, board.gone = "planned", False
+
+    await agent.run("again", deps=board, message_history=first.all_messages())
+
+    assert _sent_after_the_result(board.seen[1][1][-1]) == [_BUILT]

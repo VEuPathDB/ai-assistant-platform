@@ -38,6 +38,9 @@ SECTION_UPDATE_LEAD = (
     "same heading."
 )
 _SECTION_SEPARATOR = "\n\n---\n\n"
+# A note names the run that sent it in ``dynamic_ref``, which pydantic-ai acts on
+# only when a dynamic system prompt function of that name exists.
+_NOTE_REF = "section-update:"
 
 _HEADING = re.compile(r"^(#+) ")
 # A heading's trailing parenthesis carries counts, so it names no other section.
@@ -253,28 +256,38 @@ class StableInstructions[DepsT](AbstractCapability[DepsT]):
         ctx: RunContext[DepsT],
         request_context: ModelRequestContext,
     ) -> ModelRequestContext:
-        """Send each kept update as a system note, the same way on every request."""
-        del ctx
+        """Send each update of this run as a system note, the same way on every
+        request, and drop the notes of earlier runs: this run's instructions
+        already hold every section as it stands."""
+        tag = f"{_NOTE_REF}{ctx.run_id}"
         return replace(
             request_context,
-            messages=[_as_system_notes(m) for m in request_context.messages],
+            messages=[_as_system_notes(m, tag) for m in request_context.messages],
         )
 
 
-def _as_system_notes(message: ModelMessage) -> ModelMessage:
-    """The message with each section update it keeps sent in the system voice."""
+def _as_system_notes(message: ModelMessage, tag: str) -> ModelMessage:
+    """The message with this run's section updates in the system voice and no
+    section update of another run."""
     if not isinstance(message, ModelRequest):
         return message
     parts: list[ModelRequestPart] = []
     for part in message.parts:
-        update = _update_text(part) if isinstance(part, UserPromptPart) else None
-        if update is None or not isinstance(part, UserPromptPart):
-            parts.append(part)
-            continue
-        own = [item for item in _sent_after(part.content) if item != update]
-        if own:
-            parts.append(dataclasses.replace(part, content=own))
-        parts.append(SystemPromptPart(content=update, timestamp=part.timestamp))
+        match part:
+            case SystemPromptPart() if is_section_update(part):
+                if part.dynamic_ref == tag:
+                    parts.append(part)
+            case UserPromptPart() if (update := _update_text(part)) is not None:
+                own = [item for item in _sent_after(part.content) if item != update]
+                if own:
+                    parts.append(dataclasses.replace(part, content=own))
+                parts.append(
+                    SystemPromptPart(
+                        content=update, timestamp=part.timestamp, dynamic_ref=tag
+                    )
+                )
+            case _:
+                parts.append(part)
     return dataclasses.replace(message, parts=parts)
 
 
