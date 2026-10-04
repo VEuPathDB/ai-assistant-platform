@@ -18,6 +18,10 @@ from assistant_core.conversation.history import (
     elide_consumed,
     pair_orphans,
 )
+from assistant_core.conversation.history.elision import (
+    ELIDE_BLOCK,
+    KEEP_RECENT_TOOL_PAIRS,
+)
 
 
 def _run(messages: list[ModelMessage]) -> list[ModelMessage]:
@@ -62,7 +66,8 @@ def test_the_pipeline_leaves_a_small_structured_return_whole() -> None:
     messages: list[ModelMessage] = [
         ModelRequest(parts=[UserPromptPart(content="count them")]),
     ]
-    for i in range(6):
+    calls = KEEP_RECENT_TOOL_PAIRS + ELIDE_BLOCK + 1
+    for i in range(calls):
         messages.append(
             ModelResponse(
                 parts=[ToolCallPart(tool_name="echo", args={}, tool_call_id=f"c{i}")]
@@ -81,4 +86,4 @@ def test_the_pipeline_leaves_a_small_structured_return_whole() -> None:
 
     out = _run(messages)
 
-    assert [part.content for part in _returns(out)] == [payload] * 6
+    assert [part.content for part in _returns(out)] == [payload] * calls

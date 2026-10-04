@@ -15,6 +15,10 @@ from pydantic_ai.messages import (
 
 KEEP_RECENT_TOOL_PAIRS = 3
 
+# Older returns are digested in whole blocks of this size, so each request
+# between two block edges extends the request before it exactly.
+ELIDE_BLOCK = 8
+
 _ELIDE_MIN_CHARS = 400
 """Results at or below this stay whole: a count or an id costs less to keep
 than a round trip to fetch it again."""
@@ -64,13 +68,14 @@ def _ordered_tool_call_ids(messages: Sequence[ModelMessage]) -> list[str]:
 def elide_consumed(
     messages: list[ModelMessage],
 ) -> list[ModelMessage]:
-    # Replace older ``ToolReturnPart`` bodies with a stub, keeping the most
-    # recent ``KEEP_RECENT_TOOL_PAIRS`` intact. Pairing is preserved
-    # (Anthropic/OpenAI reject orphans); only result *content* is shortened.
+    # Replace the oldest ``ToolReturnPart`` bodies with a stub, whole blocks at
+    # a time, never touching the last ``KEEP_RECENT_TOOL_PAIRS``. Pairing is
+    # preserved (Anthropic/OpenAI reject orphans); only result content shrinks.
     call_ids = _ordered_tool_call_ids(messages)
-    if len(call_ids) <= KEEP_RECENT_TOOL_PAIRS:
+    blocks = (len(call_ids) - KEEP_RECENT_TOOL_PAIRS) // ELIDE_BLOCK
+    if blocks <= 0:
         return list(messages)
-    elide_ids = set(call_ids[:-KEEP_RECENT_TOOL_PAIRS])
+    elide_ids = set(call_ids[: blocks * ELIDE_BLOCK])
     return [_elide_returns_in_message(msg, elide_ids) for msg in messages]
 
 

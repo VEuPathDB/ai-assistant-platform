@@ -22,6 +22,7 @@ from pydantic_ai.models import (
 )
 from pydantic_ai.models.wrapper import WrapperModel
 from pydantic_ai.settings import ModelSettings
+from pydantic_core import to_jsonable_python
 
 LLMCaptureHook = Callable[[Model | str, str], Model]
 
@@ -106,7 +107,7 @@ class CapturingModel(WrapperModel):
         payload = {
             "role": self._role,
             "model": f"{self.wrapped.system}:{self.wrapped.model_name}",
-            "settings": dict(settings) if settings else {},
+            "settings": to_jsonable_python(dict(settings)) if settings else {},
             "tools": _tool_defs(params),
             "allow_text_output": params.allow_text_output,
             "messages": _dump(messages),

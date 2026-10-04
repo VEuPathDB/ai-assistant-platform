@@ -23,6 +23,7 @@ from pydantic_ai.messages import (
     is_multi_modal_content,
 )
 
+from assistant_core.capabilities.stable_instructions import is_section_update
 from assistant_core.conversation.history.pairing import collect_ids
 from assistant_core.platform.logging import get_logger
 
@@ -189,7 +190,9 @@ def _digest_lines(middle: Sequence[ModelMessage]) -> list[str]:
     for msg in middle:
         if isinstance(msg, ModelRequest):
             for req_part in msg.parts:
-                if isinstance(req_part, UserPromptPart):
+                if isinstance(req_part, UserPromptPart) and not is_section_update(
+                    req_part
+                ):
                     text = _user_text(req_part.content)
                     if text.strip():
                         lines.append(f"- user said: {_flat(text, _RESULT_HEAD_CHARS)}")
@@ -236,6 +239,18 @@ def _head_without_digests(
             continue
         kept.append(part)
     return kept, prior
+
+
+def _section_updates(middle: Sequence[ModelMessage]) -> list[UserPromptPart]:
+    """The section updates the compacted messages carried, whole and in order,
+    so the latest text of every section outlives the compaction."""
+    return [
+        part
+        for msg in middle
+        if isinstance(msg, ModelRequest)
+        for part in msg.parts
+        if isinstance(part, UserPromptPart) and is_section_update(part)
+    ]
 
 
 def _build_digest(
@@ -308,6 +323,7 @@ def compact_history(
             parts=[
                 *head_parts,
                 UserPromptPart(content=_build_digest(middle, prior_lines)),
+                *_section_updates(middle),
             ],
         ),
         *messages[split.start :],

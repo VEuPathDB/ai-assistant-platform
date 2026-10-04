@@ -100,10 +100,9 @@ def declare_durable_tool(
 
 def require_declared(tool: DurableTool) -> DurableTool:
     """The declaration this value names. Raises when it names none."""
-    found = _DECLARED.get(tool.tool_name)
-    if found != tool:
+    if _DECLARED.get(tool.tool_name) != tool:
         raise UndeclaredDurableToolError(tool.tool_name, tuple(_DECLARED))
-    return found
+    return tool
 
 
 def register_durable_impl(tool: DurableTool, impl: DurableToolImpl) -> None:

@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from typing import NoReturn
+from uuid import uuid4
+
 import pytest
 from pydantic_ai.messages import (
     ModelMessage,
@@ -9,13 +12,18 @@ from pydantic_ai.messages import (
     TextPart,
     ToolCallPart,
 )
+from pydantic_ai.models.test import TestModel
+from pydantic_ai.tools import RunContext
 from pydantic_ai.toolsets.function import FunctionToolset
-from pydantic_ai.toolsets.prepared import PreparedToolset
+from pydantic_ai.usage import RunUsage
 
+from assistant_core.graph.runtime import AssistantDeps
 from assistant_core.scratchpad.rendering import ScratchpadGuidance
 from assistant_core.scratchpad.toolset import (
     _read_tools_to_hide,
     build_scratchpad_toolset,
+    withheld_scratchpad_tools,
+    withhold_scratchpad_tools,
 )
 
 PROMOTED_KIND = "knowledge"
@@ -40,10 +48,21 @@ def _calls(*names: str) -> list[ModelMessage]:
 def test_the_toolset_carries_the_nine_scratchpad_tools() -> None:
     toolset = build_scratchpad_toolset(promoted_kind=PROMOTED_KIND)
 
-    assert isinstance(toolset, PreparedToolset)
-    inner = toolset.wrapped
-    assert isinstance(inner, FunctionToolset)
-    assert sorted(inner.tools) == TOOL_NAMES
+    assert isinstance(toolset, FunctionToolset)
+    assert sorted(toolset.tools) == TOOL_NAMES
+
+
+def test_an_empty_scratchpad_withholds_every_tool_but_note() -> None:
+    assert sorted(withheld_scratchpad_tools(0, [])) == [
+        name for name in TOOL_NAMES if name != "note"
+    ]
+
+
+def test_a_scratchpad_with_notes_withholds_only_a_read_streak() -> None:
+    assert withheld_scratchpad_tools(2, _calls("list_notes")) == frozenset()
+    assert withheld_scratchpad_tools(2, _calls("list_notes", "list_notes")) == (
+        frozenset({"list_notes"})
+    )
 
 
 def test_no_read_tool_is_hidden_before_the_streak_is_reached() -> None:
@@ -83,9 +102,8 @@ def _tool_description(guidance: ScratchpadGuidance, name: str) -> str:
         guidance=guidance,
         promoted_kind=PROMOTED_KIND,
     )
-    inner = toolset.wrapped
-    assert isinstance(inner, FunctionToolset)
-    description = inner.tools[name].tool_def.description
+    assert isinstance(toolset, FunctionToolset)
+    description = toolset.tools[name].tool_def.description
     assert description is not None
     return description
 
@@ -142,3 +160,24 @@ def test_no_tool_description_names_a_scratchpad_or_a_thread(name: str) -> None:
 
     assert "scratchpad" not in description
     assert "thread" not in description
+
+
+def _no_database() -> NoReturn:
+    msg = "the rule read the notes of a request that carries no scratchpad tool"
+    raise AssertionError(msg)
+
+
+async def test_a_request_without_scratchpad_tools_reads_no_notes() -> None:
+    ctx = RunContext(
+        deps=AssistantDeps(
+            site_id="site",
+            db_session_factory=_no_database,
+            conversation_id=uuid4(),
+        ),
+        model=TestModel(),
+        usage=RunUsage(),
+    )
+
+    assert await withhold_scratchpad_tools(ctx, ["read_step_ids", "count_search"]) == (
+        frozenset()
+    )

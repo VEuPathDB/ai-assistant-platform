@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import pytest
 from pydantic import BaseModel
 from pydantic_ai.messages import (
     ModelMessage,
@@ -17,12 +18,16 @@ from pydantic_ai.messages import (
 
 from assistant_core.conversation.history.elision import (
     _ELIDED_MARKER,
+    ELIDE_BLOCK,
     KEEP_RECENT_TOOL_PAIRS,
     elide_consumed,
 )
 
 # Results at or under the size guard stay whole, so this payload is larger.
 _BIG_RESULT_PAYLOAD = "BIG_RESULT_PAYLOAD " * 40
+
+# The fewest calls whose history digests anything: the kept tail and one block.
+_FIRST_BLOCK = KEEP_RECENT_TOOL_PAIRS + ELIDE_BLOCK
 
 
 def _user(text: str) -> ModelRequest:
@@ -94,6 +99,10 @@ def _calls_in_order(messages: list[ModelMessage]) -> list[ToolCallPart]:
     return out
 
 
+def _digested(messages: list[ModelMessage]) -> list[bool]:
+    return [_ELIDED_MARKER in str(r.content) for r in _returns_in_order(messages)]
+
+
 def test_no_tool_calls_at_all() -> None:
     """A text-only exchange passes through unchanged."""
     msgs: list[ModelMessage] = [
@@ -121,26 +130,25 @@ def test_exactly_at_keep_threshold_is_no_op() -> None:
 
 
 def test_older_returns_get_stub_recent_returns_keep_payload() -> None:
-    """Older return bodies become a stub. The most recent returns keep the
-    full payload."""
-    n = KEEP_RECENT_TOOL_PAIRS + 5
+    """The oldest block of return bodies becomes a stub. Every return after
+    the block keeps the full payload."""
+    n = _FIRST_BLOCK + 2
     msgs = _interleaved_tool_calls(n)
     out = elide_consumed(list(msgs))
     returns = _returns_in_order(out)
     assert len(returns) == n
-    elided_count = n - KEEP_RECENT_TOOL_PAIRS
-    elided = returns[:elided_count]
-    kept = returns[elided_count:]
+    elided = returns[:ELIDE_BLOCK]
+    kept = returns[ELIDE_BLOCK:]
     assert all(r.content != _BIG_RESULT_PAYLOAD for r in elided)
     assert all("elided" in str(r.content).lower() for r in elided)
     assert all(r.content == _BIG_RESULT_PAYLOAD for r in kept)
-    assert len(kept) == KEEP_RECENT_TOOL_PAIRS
+    assert len(kept) == KEEP_RECENT_TOOL_PAIRS + 2
 
 
 def test_pairing_is_preserved() -> None:
     """Each tool call keeps a matching return with the same tool_call_id.
     Elision changes the result body only."""
-    n = KEEP_RECENT_TOOL_PAIRS + 7
+    n = _FIRST_BLOCK + 7
     msgs = _interleaved_tool_calls(n)
     out = elide_consumed(list(msgs))
     call_ids = [c.tool_call_id for c in _calls_in_order(out)]
@@ -151,21 +159,21 @@ def test_pairing_is_preserved() -> None:
 
 def test_tool_call_args_are_not_touched() -> None:
     """Call arguments stay intact. Only result bodies get the stub."""
+    n = _FIRST_BLOCK + 3
     msgs: list[ModelMessage] = [_user("go")]
-    for i in range(KEEP_RECENT_TOOL_PAIRS + 3):
+    for i in range(n):
         call = ToolCallPart(
             tool_name="search",
             args={"q": f"query_{i}", "context": "important_args"},
             tool_call_id=f"call_{i}",
         )
         msgs.append(ModelResponse(parts=[call]))
-        msgs.append(_tool_return(f"call_{i}", content="HUGE_RESPONSE"))
+        msgs.append(_tool_return(f"call_{i}"))
     out = elide_consumed(list(msgs))
-    for call in _calls_in_order(out):
-        assert call.args == {
-            "q": call.args["q"] if isinstance(call.args, dict) else "query_x",
-            "context": "important_args",
-        } or isinstance(call.args, str)
+    assert sum(_digested(out)) == ELIDE_BLOCK
+    assert [call.args for call in _calls_in_order(out)] == [
+        {"q": f"query_{i}", "context": "important_args"} for i in range(n)
+    ]
 
 
 def test_user_and_system_messages_untouched() -> None:
@@ -174,7 +182,7 @@ def test_user_and_system_messages_untouched() -> None:
         _system("scoped to the workspace"),
         _user("find matching rows"),
     ]
-    msgs.extend(_interleaved_tool_calls(KEEP_RECENT_TOOL_PAIRS + 2)[1:])
+    msgs.extend(_interleaved_tool_calls(_FIRST_BLOCK + 2)[1:])
     msgs.append(_user("follow-up question"))
     out = elide_consumed(list(msgs))
     sys_prompts: list[SystemPromptPart] = []
@@ -197,7 +205,7 @@ def test_retry_prompt_parts_untouched() -> None:
         tool_name="tool_x",
     )
     msgs: list[ModelMessage] = [_user("go")]
-    for i in range(KEEP_RECENT_TOOL_PAIRS + 2):
+    for i in range(_FIRST_BLOCK + 2):
         msgs.append(_assistant_with_call(f"call_{i}"))
         msgs.append(
             ModelRequest(
@@ -227,16 +235,17 @@ def test_retry_prompt_parts_untouched() -> None:
 def test_idempotent_when_already_elided() -> None:
     """The processor runs before every model request, so a second pass over
     the same history is a no-op."""
-    msgs = _interleaved_tool_calls(KEEP_RECENT_TOOL_PAIRS + 4)
+    msgs = _interleaved_tool_calls(_FIRST_BLOCK + 4)
     once = elide_consumed(list(msgs))
     twice = elide_consumed(once)
+    assert once != msgs
     assert once == twice
 
 
 def test_text_only_assistant_responses_not_dropped() -> None:
     """Assistant text parts pass through unchanged."""
     msgs: list[ModelMessage] = [_user("go")]
-    for i in range(KEEP_RECENT_TOOL_PAIRS + 1):
+    for i in range(_FIRST_BLOCK + 1):
         msgs.append(
             ModelResponse(
                 parts=[
@@ -252,7 +261,7 @@ def test_text_only_assistant_responses_not_dropped() -> None:
         if not isinstance(msg, ModelResponse):
             continue
         text_contents.extend(p.content for p in msg.parts if isinstance(p, TextPart))
-    expected = [f"thinking step {i}" for i in range(KEEP_RECENT_TOOL_PAIRS + 1)]
+    expected = [f"thinking step {i}" for i in range(_FIRST_BLOCK + 1)]
     assert text_contents == expected
 
 
@@ -292,65 +301,61 @@ def _interleaved_structured(
 def test_older_structured_dict_returns_get_stubbed() -> None:
     """A dict tool return is masked once consumed."""
     payload = {"results": ["a", "b", "c"], "score": 0.91, "blob": "z" * 3000}
-    n = KEEP_RECENT_TOOL_PAIRS + 5
+    n = _FIRST_BLOCK + 5
     msgs = _interleaved_structured(n, payload=payload)
     out = elide_consumed(list(msgs))
     returns = _returns_in_order(out)
-    elided_count = n - KEEP_RECENT_TOOL_PAIRS
-    elided = returns[:elided_count]
-    kept = returns[elided_count:]
+    elided = returns[:ELIDE_BLOCK]
+    kept = returns[ELIDE_BLOCK:]
     assert all(
         isinstance(r.content, str) and _ELIDED_MARKER in r.content for r in elided
     )
     assert all(r.content == payload for r in kept)
-    assert len(kept) == KEEP_RECENT_TOOL_PAIRS
+    assert len(kept) == KEEP_RECENT_TOOL_PAIRS + 5
 
 
 def test_older_structured_list_returns_get_stubbed() -> None:
     """A list tool return collapses to the stub once consumed."""
     payload = [{"name": f"Query{i}", "description": "d" * 500} for i in range(8)]
-    n = KEEP_RECENT_TOOL_PAIRS + 4
+    n = _FIRST_BLOCK + 4
     msgs = _interleaved_structured(n, payload=payload)
     out = elide_consumed(list(msgs))
-    returns = _returns_in_order(out)
-    elided = returns[: n - KEEP_RECENT_TOOL_PAIRS]
-    assert len(elided) == 4
-    assert [_ELIDED_MARKER in str(r.content) for r in elided] == [True] * 4
+    assert _digested(out) == [True] * ELIDE_BLOCK + [False] * (n - ELIDE_BLOCK)
 
 
 def test_older_pydantic_model_returns_get_stubbed() -> None:
     """A Pydantic model tool return is masked once consumed."""
     payload = _StructuredResult(query_name="QueryByText", rows=["r"] * 200)
-    n = KEEP_RECENT_TOOL_PAIRS + 3
+    n = _FIRST_BLOCK + 3
     msgs = _interleaved_structured(n, payload=payload)
     out = elide_consumed(list(msgs))
     returns = _returns_in_order(out)
-    elided = returns[: n - KEEP_RECENT_TOOL_PAIRS]
-    kept = returns[n - KEEP_RECENT_TOOL_PAIRS :]
-    assert len(elided) == 3
-    assert [_ELIDED_MARKER in str(r.content) for r in elided] == [True] * 3
-    assert [r.content for r in kept] == [payload] * KEEP_RECENT_TOOL_PAIRS
+    elided = returns[:ELIDE_BLOCK]
+    kept = returns[ELIDE_BLOCK:]
+    assert [_ELIDED_MARKER in str(r.content) for r in elided] == [True] * ELIDE_BLOCK
+    assert [r.content for r in kept] == [payload] * (n - ELIDE_BLOCK)
 
 
 def test_structured_elision_is_idempotent() -> None:
     """A second pass leaves an already stubbed structured return alone."""
     payload = {"big": "y" * 4000}
-    msgs = _interleaved_structured(KEEP_RECENT_TOOL_PAIRS + 4, payload=payload)
+    msgs = _interleaved_structured(_FIRST_BLOCK + 4, payload=payload)
     once = elide_consumed(list(msgs))
     twice = elide_consumed(once)
+    assert once != msgs
     assert once == twice
 
 
-def test_realistic_30_call_discovery_loop_collapses_payload() -> None:
-    """A long tool-call loop keeps the full payload only on the most recent
-    returns."""
+def test_a_long_tool_call_loop_collapses_payload() -> None:
+    """A long tool-call loop digests whole blocks and keeps the full payload
+    only on the returns after the last block."""
     big = "X" * 3000
-    n = 30
+    n = KEEP_RECENT_TOOL_PAIRS + 3 * ELIDE_BLOCK + 3
     msgs = _interleaved_tool_calls(n, return_content=big)
     out = elide_consumed(list(msgs))
     returns = _returns_in_order(out)
     full_count = sum(1 for r in returns if r.content == big)
-    assert full_count == KEEP_RECENT_TOOL_PAIRS
+    assert full_count == KEEP_RECENT_TOOL_PAIRS + 3
     elided_bytes = sum(
         len(big) - len(str(r.content)) for r in returns if r.content != big
     )
@@ -380,7 +385,7 @@ class TestElisionDoesNotCauseRefetching:
         return history
 
     def test_a_small_result_is_never_elided(self) -> None:
-        results: list[object] = [326] * (KEEP_RECENT_TOOL_PAIRS + 3)
+        results: list[object] = [326] * (_FIRST_BLOCK + 3)
 
         kept = _returned_contents(elide_consumed(self._history(results)))
 
@@ -388,16 +393,16 @@ class TestElisionDoesNotCauseRefetching:
 
     def test_a_bulky_result_is_still_compressed(self) -> None:
         bulky = {"records": [{"id": f"PF3D7_{i:06d}"} for i in range(500)]}
-        results: list[object] = [bulky] * (KEEP_RECENT_TOOL_PAIRS + 2)
+        results: list[object] = [bulky] * (_FIRST_BLOCK + 2)
 
         kept = _returned_contents(elide_consumed(self._history(results)))
         compressed = [k for k in kept if isinstance(k, str) and "elided" in k]
 
-        assert len(compressed) == 2, "large payloads must still be compressed"
+        assert len(compressed) == ELIDE_BLOCK, "large payloads must still be compressed"
 
     def test_a_compressed_result_keeps_a_usable_digest(self) -> None:
         bulky = {"estimatedSize": 326, "records": [{"id": f"g{i}"} for i in range(500)]}
-        results: list[object] = [bulky] * (KEEP_RECENT_TOOL_PAIRS + 2)
+        results: list[object] = [bulky] * (_FIRST_BLOCK + 2)
 
         kept = _returned_contents(elide_consumed(self._history(results)))
         compressed = [k for k in kept if isinstance(k, str) and "elided" in k]
@@ -409,7 +414,7 @@ class TestElisionDoesNotCauseRefetching:
 
     def test_the_digest_does_not_invite_a_re_call(self) -> None:
         bulky = {"records": [{"id": f"g{i}"} for i in range(500)]}
-        results: list[object] = [bulky] * (KEEP_RECENT_TOOL_PAIRS + 2)
+        results: list[object] = [bulky] * (_FIRST_BLOCK + 2)
 
         kept = _returned_contents(elide_consumed(self._history(results)))
         compressed = [k for k in kept if isinstance(k, str) and "elided" in k]
@@ -419,8 +424,71 @@ class TestElisionDoesNotCauseRefetching:
 
     def test_recent_results_are_untouched(self) -> None:
         bulky = {"records": [{"id": f"g{i}"} for i in range(500)]}
-        results: list[object] = [bulky] * (KEEP_RECENT_TOOL_PAIRS + 2)
+        results: list[object] = [bulky] * (_FIRST_BLOCK + 2)
 
         kept = _returned_contents(elide_consumed(self._history(results)))
 
         assert kept[-KEEP_RECENT_TOOL_PAIRS:] == results[-KEEP_RECENT_TOOL_PAIRS:]
+
+
+def _first_calls(history: list[ModelMessage], calls: int) -> list[ModelMessage]:
+    """The history a run holds after ``calls`` call and return round-trips."""
+    return history[: 1 + 2 * calls]
+
+
+def _is_block_edge(calls: int) -> bool:
+    past_tail = calls - KEEP_RECENT_TOOL_PAIRS
+    return past_tail >= ELIDE_BLOCK and past_tail % ELIDE_BLOCK == 0
+
+
+_LONG_RUN = KEEP_RECENT_TOOL_PAIRS + 3 * ELIDE_BLOCK
+
+
+class TestElisionGrowsInBlocks:
+    """A run's requests stay append-only between two block edges."""
+
+    def test_requests_between_block_edges_extend_each_other_exactly(self) -> None:
+        history = _interleaved_tool_calls(_LONG_RUN)
+        extended = 0
+        for calls in range(_LONG_RUN):
+            if _is_block_edge(calls + 1):
+                continue
+            before = elide_consumed(_first_calls(history, calls))
+            after = elide_consumed(_first_calls(history, calls + 1))
+            assert len(after) == len(before) + 2
+            for index, message in enumerate(before):
+                assert after[index] == message, (calls, index)
+            extended += 1
+        assert extended == _LONG_RUN - 3
+
+    @pytest.mark.parametrize("blocks", [1, 2, 3])
+    def test_a_block_edge_digests_exactly_one_more_block(self, blocks: int) -> None:
+        edge = KEEP_RECENT_TOOL_PAIRS + blocks * ELIDE_BLOCK
+        history = _interleaved_tool_calls(edge)
+
+        before = _digested(elide_consumed(_first_calls(history, edge - 1)))
+        after = _digested(elide_consumed(history))
+
+        assert sum(after) - sum(before) == ELIDE_BLOCK
+        assert (
+            after == [True] * (blocks * ELIDE_BLOCK) + [False] * KEEP_RECENT_TOOL_PAIRS
+        )
+
+    def test_the_most_recent_returns_are_never_digested(self) -> None:
+        history = _interleaved_tool_calls(_LONG_RUN)
+        for calls in range(1, _LONG_RUN + 1):
+            flags = _digested(elide_consumed(_first_calls(history, calls)))
+            recent = min(calls, KEEP_RECENT_TOOL_PAIRS)
+            assert flags[-KEEP_RECENT_TOOL_PAIRS:] == [False] * recent, calls
+
+    def test_a_second_pass_changes_nothing_at_any_count(self) -> None:
+        history = _interleaved_tool_calls(_LONG_RUN)
+        for calls in range(_LONG_RUN + 1):
+            once = elide_consumed(_first_calls(history, calls))
+            assert elide_consumed(once) == once, calls
+
+    def test_fewer_calls_than_the_tail_and_one_block_digest_nothing(self) -> None:
+        history = _interleaved_tool_calls(_FIRST_BLOCK - 1)
+        for calls in range(_FIRST_BLOCK):
+            prefix = _first_calls(history, calls)
+            assert elide_consumed(prefix) == prefix, calls

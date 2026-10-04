@@ -10,10 +10,9 @@ from pydantic_ai.messages import (
     ToolCallPart,
     ToolReturn,
 )
-from pydantic_ai.tools import RunContext, Tool, ToolDefinition
+from pydantic_ai.tools import RunContext, Tool
 from pydantic_ai.toolsets.abstract import AbstractToolset
 from pydantic_ai.toolsets.function import FunctionToolset
-from pydantic_ai.toolsets.prepared import PreparedToolset
 
 from assistant_core.graph.runtime import AssistantDeps
 from assistant_core.scratchpad.notebook import ScratchpadNotebook
@@ -44,6 +43,8 @@ _EMPTY_SCRATCHPAD_HIDDEN = frozenset(
         "promote_to_memory",
     }
 )
+
+_SCRATCHPAD_TOOLS = _EMPTY_SCRATCHPAD_HIDDEN | {"note"}
 
 _READ_TOOLS = frozenset({"search_notes", "list_notes", "read_note"})
 
@@ -77,19 +78,28 @@ def _over_the_streak(counts: dict[str, int]) -> frozenset[str]:
     )
 
 
-async def _prepare_scratchpad_tools(
-    ctx: RunContext[AssistantDeps],
-    tool_defs: list[ToolDefinition],
-) -> list[ToolDefinition]:
+def withheld_scratchpad_tools(
+    total_notes: int, messages: Sequence[ModelMessage]
+) -> frozenset[str]:
+    """The scratchpad tools the model may not call, given the notes the thread holds."""
+    if total_notes == 0:
+        return _EMPTY_SCRATCHPAD_HIDDEN
+    return _read_tools_to_hide(messages)
+
+
+async def withhold_scratchpad_tools(
+    ctx: RunContext[AssistantDeps], names: Sequence[str]
+) -> frozenset[str]:
+    """The withhold rule an agent's ``AllowedTools`` takes for its scratchpad.
+
+    A request that carries none of the scratchpad's tools reads no notes.
+    """
     factory = ctx.deps.db_session_factory
     conversation_id = ctx.deps.conversation_id
-    if factory is None or conversation_id is None:
-        return tool_defs
+    if factory is None or conversation_id is None or not _SCRATCHPAD_TOOLS & set(names):
+        return frozenset()
     total = await ScratchpadNotebook(factory, conversation_id).total_notes()
-    if total == 0:
-        return [td for td in tool_defs if td.name not in _EMPTY_SCRATCHPAD_HIDDEN]
-    hidden = _read_tools_to_hide(ctx.messages)
-    return [td for td in tool_defs if td.name not in hidden]
+    return withheld_scratchpad_tools(total, ctx.messages)
 
 
 def _promote_tool(sentence: str, kind: str) -> Tool[AssistantDeps]:
@@ -120,7 +130,8 @@ def build_scratchpad_toolset(
     promoted_kind: str,
     guidance: ScratchpadGuidance = _NO_GUIDANCE,
 ) -> AbstractToolset[AssistantDeps]:
-    """The nine scratchpad tools, filtered for what the thread holds now."""
+    """The nine scratchpad tools; ``withhold_scratchpad_tools`` says which the
+    model may call now."""
     base = FunctionToolset[AssistantDeps](
         max_retries=3,
         tools=[
@@ -135,4 +146,4 @@ def build_scratchpad_toolset(
         ],
     )
     base.add_tool(_promote_tool(guidance.promote, promoted_kind))
-    return PreparedToolset(wrapped=base, prepare_func=_prepare_scratchpad_tools)
+    return base

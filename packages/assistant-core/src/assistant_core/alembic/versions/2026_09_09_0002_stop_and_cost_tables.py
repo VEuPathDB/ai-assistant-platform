@@ -40,7 +40,7 @@ def upgrade() -> None:
     if present:
         msg = (
             "the database holds part of the runtime schema: present "
-            f"{sorted(present)}, missing {sorted(frozenset(CREATES) - present)}"
+            f"{sorted(present)}, missing {sorted(frozenset[str](CREATES) - present)}"
         )
         raise RuntimeError(msg)
 

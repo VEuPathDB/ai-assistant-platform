@@ -1,4 +1,5 @@
-"""The process's tracer and exporter, and the root span that makes a turn one trace.
+"""The process's tracer and exporter, the root span that makes a turn one trace,
+and the attributes a model request's span carries.
 
 The exporter reads the standard OpenTelemetry variables. A process with no OTLP
 endpoint installs nothing, and every span it opens is a no-op.
@@ -9,6 +10,7 @@ from __future__ import annotations
 from collections.abc import Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from contextvars import ContextVar
+from dataclasses import dataclass
 from typing import Literal, override
 from uuid import UUID, uuid4
 
@@ -38,8 +40,16 @@ from opentelemetry.sdk.trace.sampling import (
 from opentelemetry.trace import Link, SpanKind, TraceState
 from opentelemetry.util.re import parse_env_headers
 from opentelemetry.util.types import Attributes
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from pydantic_ai import Agent, InstrumentationSettings
+from pydantic_ai.capabilities.abstract import (
+    AbstractCapability,
+    WrapModelRequestHandler,
+)
+from pydantic_ai.messages import ModelResponse
+from pydantic_ai.models import ModelRequestContext
+from pydantic_ai.settings import ThinkingEffort
+from pydantic_ai.tools import RunContext
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy.ext.asyncio import AsyncEngine
 
@@ -180,6 +190,52 @@ def _priced(span: ReadableSpan) -> ReadableSpan:
         end_time=span.end_time,
         instrumentation_scope=span.instrumentation_scope,
     )
+
+
+_REASONING_EFFORT_ATTRIBUTE = "gen_ai.request.reasoning_effort"
+
+
+class _RequestEffort(BaseModel):
+    """The two keys of a request's model settings that name its reasoning effort."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    openai_reasoning_effort: str | None = None
+    thinking: ThinkingEffort | None = None
+
+    @field_validator("thinking", mode="before")
+    @classmethod
+    def _a_bool_names_no_level(cls, value: object) -> object:
+        return None if value is True or value is False else value
+
+    @property
+    def level(self) -> str | None:
+        """The provider's own effort when set, because the provider reads it first."""
+        return self.openai_reasoning_effort or self.thinking
+
+
+@dataclass
+class ReasoningEffortOnSpan(AbstractCapability[object]):
+    """Writes each model request's reasoning effort on its ``chat`` span.
+
+    The agent library opens that span outside every other capability, so the
+    span in force here is the request's own. A request with no effort level
+    gets no attribute.
+    """
+
+    async def wrap_model_request(
+        self,
+        ctx: RunContext[object],
+        *,
+        request_context: ModelRequestContext,
+        handler: WrapModelRequestHandler,
+    ) -> ModelResponse:
+        del ctx
+        settings = request_context.model_settings or {}
+        level = _RequestEffort.model_validate(settings).level
+        if level is not None:
+            trace.get_current_span().set_attribute(_REASONING_EFFORT_ATTRIBUTE, level)
+        return await handler(request_context)
 
 
 class _Installed:
@@ -326,6 +382,7 @@ def current_trace_id() -> str | None:
 
 __all__ = [
     "PricedSpanExporter",
+    "ReasoningEffortOnSpan",
     "TraceScope",
     "current_trace_id",
     "install_observability",

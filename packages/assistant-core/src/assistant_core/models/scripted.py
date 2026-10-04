@@ -15,7 +15,7 @@ from __future__ import annotations
 from collections.abc import AsyncIterator, Callable, Mapping, Sequence
 from contextvars import ContextVar
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, TypeGuard
 from uuid import uuid4
 
 from pydantic_ai.messages import (
@@ -30,6 +30,8 @@ from pydantic_ai.messages import (
     UserPromptPart,
 )
 from pydantic_ai.models.function import AgentInfo, DeltaToolCall, FunctionModel
+
+from assistant_core.capabilities.stable_instructions import is_section_update
 
 UNKNOWN_ROLE = "unknown"
 TERMINAL_TOOL = "final_result"
@@ -64,6 +66,11 @@ def detect_role(info: AgentInfo, roles: Sequence[RoleMarkers]) -> str:
     return UNKNOWN_ROLE
 
 
+def _a_user_message(part: object) -> TypeGuard[UserPromptPart]:
+    """A user-prompt part that carries the user's words, not section updates."""
+    return isinstance(part, UserPromptPart) and not is_section_update(part)
+
+
 def _text_of(content: str | Sequence[UserContent]) -> str:
     """The text of one user message. A file beside the text is not text."""
     if isinstance(content, str):
@@ -78,7 +85,7 @@ def user_texts(messages: list[ModelMessage]) -> list[str]:
         for msg in messages
         if isinstance(msg, ModelRequest)
         for part in msg.parts
-        if isinstance(part, UserPromptPart)
+        if _a_user_message(part)
     ]
 
 
@@ -103,7 +110,7 @@ def current_turn(messages: list[ModelMessage]) -> list[ModelMessage]:
     start = 0
     for index, msg in enumerate(messages):
         if isinstance(msg, ModelRequest) and any(
-            isinstance(part, UserPromptPart) for part in msg.parts
+            _a_user_message(part) for part in msg.parts
         ):
             start = index
     return messages[start:]
@@ -191,7 +198,7 @@ def deferred_tool_resolved(messages: list[ModelMessage], tool_name: str) -> bool
             isinstance(p, ToolReturnPart) and p.tool_name == tool_name for p in parts
         ):
             resolved = True
-        elif not has_tool_return and any(isinstance(p, UserPromptPart) for p in parts):
+        elif not has_tool_return and any(_a_user_message(p) for p in parts):
             resolved = False
     return resolved
 

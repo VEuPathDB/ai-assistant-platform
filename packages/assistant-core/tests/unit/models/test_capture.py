@@ -8,6 +8,7 @@ import pytest
 from pydantic_ai import Agent
 from pydantic_ai.models.test import TestModel
 
+from assistant_core.capabilities.allowed_tools import AllowedTools
 from assistant_core.models.capture import (
     CapturingModel,
     capture_llm,
@@ -51,3 +52,32 @@ def test_capture_llm_hook_wraps_models_only_inside_block(tmp_path: Path) -> None
         assert wrapped._role == "drafting"
     passthrough = maybe_wrap_model("openai:gpt-4.1", "drafting")
     assert passthrough == "openai:gpt-4.1"
+
+
+@pytest.mark.asyncio
+async def test_a_tool_choice_in_the_settings_is_captured(tmp_path: Path) -> None:
+    cap = CapturingModel(
+        TestModel(call_tools=["read"]), run_dir=tmp_path, role="lead", seq=count(1)
+    )
+    agent = Agent(
+        cap, capabilities=[AllowedTools[None](rules=[lambda ctx, names: {"build"}])]
+    )
+
+    @agent.tool_plain
+    def read() -> str:
+        """Read the strategy."""
+        return "read"
+
+    @agent.tool_plain
+    def build() -> str:
+        """Build the strategy."""
+        return "built"
+
+    await agent.run("go")
+
+    request = next(
+        f for f in sorted((tmp_path / "llm").glob("*.json")) if "request" in f.name
+    )
+    assert json.loads(request.read_text())["settings"]["tool_choice"] == {
+        "function_tools": ["read"]
+    }

@@ -149,7 +149,11 @@ is set. A host runs each turn under `traced(TraceScope(...))`, one root span tha
 carries `session.id` (the conversation) and `user.id` on every span beneath it, and
 reads the turn's id back with `current_trace_id()`. A durable body runs under a
 root span of its own, named after its tool, on the same session. A priced model
-request is exported with `gen_ai.usage.cost`, the price the runtime charged.
+request is exported with `gen_ai.usage.cost`, the price the runtime charged. An
+agent that carries the `ReasoningEffortOnSpan` capability exports each model
+request with `gen_ai.request.reasoning_effort`, the effort the request was sent
+with: `openai_reasoning_effort` when the settings name it, else the `thinking`
+level, and no attribute when neither names a level.
 
 ## PROTOCOL.md is the contract
 

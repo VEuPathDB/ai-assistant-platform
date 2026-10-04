@@ -12,9 +12,11 @@ from pydantic_ai.messages import (
     TextPart,
     ToolCallPart,
     ToolReturnPart,
+    UserContent,
     UserPromptPart,
 )
 
+from assistant_core.capabilities.stable_instructions import SECTION_UPDATE_LEAD
 from assistant_core.conversation.history.compaction import (
     _DIGEST_CHAR_CAP,
     _DIGEST_OPENING,
@@ -431,3 +433,29 @@ def test_a_folded_image_is_named_in_the_digest() -> None:
     digests = _digest_prompts(compacted)
     assert len(digests) == 1
     assert "- user said: (attached image/png) What is this?" in digests[0]
+
+
+def test_a_compacted_section_update_is_carried_whole_and_never_quoted_as_the_user() -> (
+    None
+):
+    update: list[UserContent] = [SECTION_UPDATE_LEAD, "## Stage\nbuilt"]
+    messages: list[ModelMessage] = [
+        _user("Find kinases"),
+        ModelResponse(parts=[_call("c1")]),
+        ModelRequest(
+            parts=[
+                ToolReturnPart("tool_x", _HUGE, tool_call_id="c1"),
+                UserPromptPart(content=update),
+            ]
+        ),
+        *_exchange("c2", content=_ENORMOUS),
+        *_exchange("c3"),
+        *_exchange("c4"),
+    ]
+
+    head = compact_history(messages)[0]
+
+    assert isinstance(head, ModelRequest)
+    carried = [p.content for p in head.parts if isinstance(p, UserPromptPart)]
+    assert carried[-1] == update
+    assert not any("user said: " + SECTION_UPDATE_LEAD[:20] in str(c) for c in carried)

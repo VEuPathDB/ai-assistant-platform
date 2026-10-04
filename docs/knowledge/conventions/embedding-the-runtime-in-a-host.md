@@ -174,6 +174,25 @@ does not resemble it. A host that arrives from an older version passes the
 scope where it passed those values one by one, and a test that reads the
 signature by name reads `scope`.
 
+# A run's prompt only grows
+
+A provider reuses a cached request only when the next request extends it
+unchanged, tools and instructions first. The host adds these to each agent it
+builds, so every request of a run extends the one before it.
+
+- `capabilities.stable_instructions.StableInstructions` holds each instruction
+  section a run reads to the text the run first read. A section is registered
+  as `agent.instructions(stable.section(render))` beside the capability; a
+  section a tool call changes is sent after that call's result, under
+  `capabilities.stable_instructions.SECTION_UPDATE_LEAD`.
+- `capabilities.allowed_tools.AllowedTools` sends every function tool on every
+  request. Each of its rules names the tools the model may not call now; OpenAI
+  receives an `allowed_tools` choice and a provider without one filters the
+  list. The scratchpad toolset lists its nine tools whatever the thread holds,
+  and `withhold_scratchpad_tools`, beside it, is its rule.
+- `conversation.history.elision.elide_consumed` digests old tool results in
+  blocks of `conversation.history.elision.ELIDE_BLOCK`.
+
 # The refusals
 
 No error here names an HTTP status. A host maps them.

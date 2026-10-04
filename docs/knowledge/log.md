@@ -15,6 +15,51 @@ so a deployment pairs `max` only with a reasoning model. `PROTOCOL.md` and the
 TypeScript client name no effort value and are unchanged.
 `assistant-core` is 0.3.0a22.
 
+- `elide_consumed` digests consumed tool returns in whole blocks of
+  `ELIDE_BLOCK` (8). With `n` calls in the history, the oldest
+  `((n - KEEP_RECENT_TOOL_PAIRS) // ELIDE_BLOCK) * ELIDE_BLOCK` call ids are
+  eligible, and none while that is zero. Each request between two block edges
+  is the request before it plus the new messages, unchanged, so a provider's
+  prefix cache can read the earlier request back; only a block edge rewrites
+  an earlier message. The digest text, the size floor, pairing and idempotence
+  are unchanged.
+- `assistant_core.platform.observability.ReasoningEffortOnSpan` is a capability
+  that writes each model request's reasoning effort on its `chat` span as
+  `gen_ai.request.reasoning_effort`, which a tracing backend reads as a model
+  parameter. It reads the merged settings before the model prepares them:
+  `openai_reasoning_effort` when set, because the provider reads it before
+  `thinking`, else a `thinking` level. A bool or absent `thinking` writes
+  nothing. pydantic-ai's instrumentation is the outermost capability and opens
+  the span before the handler chain, so the span in force is the request's
+  own. A host adds the capability to each agent it builds; the runtime adds it
+  to none.
+- `capabilities.stable_instructions.StableInstructions` holds each instruction
+  section a run reads to the text the run first read, so every request of a run
+  reads the same instructions. A section a tool call changes is sent after that
+  call's result, as content after the tool's return: `SECTION_UPDATE_LEAD`,
+  then each changed section as its own item; a section that stops rendering is
+  named as no longer applying. A new run reads every section as it stands.
+  `briefing_now(instructions, messages)` is the briefing a model reads after
+  those updates, each updated section in its place.
+- `capabilities.allowed_tools.AllowedTools` keeps every function tool on every
+  request and passes the tools no rule withholds as a `ToolOrOutput` choice,
+  which reaches OpenAI as `allowed_tools`. The scratchpad toolset no longer
+  filters its tools: `scratchpad.toolset.withhold_scratchpad_tools` is the rule
+  that withholds every tool but `note` while the thread holds no note, and a
+  read tool after two consecutive calls; it reads no notes for a request that
+  carries no scratchpad tool. A withheld tool a provider lets the model call
+  anyway is refused before it runs.
+- `capabilities.stable_instructions.is_section_update` tells a section update
+  from the user's words. The scripted model's `user_texts` and `current_turn`
+  read no user message and start no turn at one, and compaction carries every
+  section update of the compacted messages whole after its digest, never as
+  something the user said.
+- `models/capture.py` writes a request's settings through
+  `pydantic_core.to_jsonable_python`, so a `tool_choice` the gate sets is
+  captured as data.
+
+`assistant-core` is 0.3.0a23.
+
 ## 2026-09-28
 
 Tracing is the runtime's, installed once per process.

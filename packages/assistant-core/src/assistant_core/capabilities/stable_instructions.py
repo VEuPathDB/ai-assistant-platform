@@ -1,0 +1,237 @@
+"""A run's instruction sections held to the text the run first read, and each
+section a tool call changed sent after that call's result, so every request of a
+run extends the one before it."""
+
+from __future__ import annotations
+
+import inspect
+import re
+from collections.abc import Awaitable, Callable, Sequence
+from dataclasses import dataclass, field
+from typing import Any
+
+from pydantic_ai import RunContext
+from pydantic_ai.capabilities.abstract import AbstractCapability, WrapRunHandler
+from pydantic_ai.messages import (
+    ModelMessage,
+    ModelRequest,
+    ToolCallPart,
+    ToolReturn,
+    UserContent,
+    UserPromptPart,
+)
+from pydantic_ai.run import AgentRunResult
+from pydantic_ai.tools import ToolDefinition
+
+type SectionRender[DepsT] = Callable[
+    [RunContext[DepsT]], str | Awaitable[str | None] | None
+]
+type Section[DepsT] = Callable[[RunContext[DepsT]], Awaitable[str | None]]
+
+SECTION_UPDATE_LEAD = (
+    "This call changed the briefing. Each section below replaces the section of "
+    "the same heading in your instructions."
+)
+
+_HEADING = re.compile(r"^(#+) ")
+# A heading's trailing parenthesis carries counts, so it names no other section.
+_HEADING_SUFFIX = re.compile(r"\s*\([^)]*\)\s*$")
+_GONE = re.compile(r"^The section (?P<heading>.+) no longer applies\.$")
+
+
+def is_section_update(part: UserPromptPart) -> bool:
+    """Whether a user-prompt part carries section updates rather than the user's words."""
+    return bool(_update_items(part))
+
+
+def _update_items(part: UserPromptPart) -> list[str]:
+    """The sections a part sends after the update lead, in order."""
+    items = [part.content] if isinstance(part.content, str) else list(part.content)
+    texts = [item if isinstance(item, str) else "" for item in items]
+    if SECTION_UPDATE_LEAD not in texts:
+        return []
+    return texts[texts.index(SECTION_UPDATE_LEAD) + 1 :]
+
+
+def _section_key(line: str) -> str:
+    return _HEADING_SUFFIX.sub("", line).strip()
+
+
+def _replaced(briefing: str, heading: str, text: str | None) -> str:
+    """The briefing with the section under ``heading`` replaced by ``text``.
+
+    A section runs to the next heading of its level or higher. A heading the
+    briefing does not hold adds ``text`` at its end.
+    """
+    match = _HEADING.match(heading)
+    lines = briefing.split("\n")
+    key = _section_key(heading)
+    start = next(
+        (
+            i
+            for i, line in enumerate(lines)
+            if _HEADING.match(line) and _section_key(line) == key
+        ),
+        None,
+    )
+    if start is None or match is None:
+        return briefing if text is None else f"{briefing}\n\n{text}"
+    level = len(match.group(1))
+    end = next(
+        (
+            j
+            for j in range(start + 1, len(lines))
+            if (found := _HEADING.match(lines[j])) and len(found.group(1)) <= level
+        ),
+        len(lines),
+    )
+    kept = [
+        *lines[:start],
+        *([] if text is None else [*text.split("\n"), ""]),
+        *lines[end:],
+    ]
+    return "\n".join(kept).strip("\n")
+
+
+def briefing_now(instructions: str, messages: Sequence[ModelMessage]) -> str:
+    """The instructions as the model reads them after every section update in
+    ``messages``: each updated section in its place, in its latest text."""
+    briefing = instructions
+    for message in messages:
+        if not isinstance(message, ModelRequest):
+            continue
+        for part in message.parts:
+            if not isinstance(part, UserPromptPart):
+                continue
+            for item in _update_items(part):
+                gone = _GONE.match(item)
+                if gone is not None:
+                    briefing = _replaced(briefing, gone.group("heading"), None)
+                else:
+                    briefing = _replaced(briefing, item.split("\n", 1)[0], item)
+    return briefing
+
+
+async def _rendered[DepsT](
+    render: SectionRender[DepsT], ctx: RunContext[DepsT]
+) -> str | None:
+    text = render(ctx)
+    return await text if inspect.isawaitable(text) else text
+
+
+def _heading(text: str) -> str:
+    """The first line of a section, which names it."""
+    return text.split("\n", 1)[0]
+
+
+def _sent_after(content: str | Sequence[UserContent] | None) -> list[UserContent]:
+    """The content a tool already sends after its result, as a list."""
+    match content:
+        case None:
+            return []
+        case str() as text:
+            return [text]
+        case _:
+            return list(content)
+
+
+def _with_update(result: Any, update: list[UserContent]) -> Any:
+    """The tool's result with ``update`` sent to the model after it."""
+    match result:
+        case ToolReturn():
+            return ToolReturn(
+                return_value=result.return_value,
+                content=[*_sent_after(result.content), *update],
+                metadata=result.metadata,
+            )
+        case _:
+            return ToolReturn(return_value=result, content=update)
+
+
+@dataclass
+class _RunSections:
+    """What one run read of each section first, and the latest text it was sent."""
+
+    held: dict[str, str | None] = field(default_factory=dict)
+    latest: dict[str, str | None] = field(default_factory=dict)
+
+
+@dataclass
+class StableInstructions[DepsT](AbstractCapability[DepsT]):
+    """Holds each section a run reads to the text the run first read.
+
+    Register a section with ``agent.instructions(stable.section(render))`` and
+    add this capability to the agent. Outside a run a section renders as it
+    stands. An update sends each changed section as its own item after
+    ``SECTION_UPDATE_LEAD``.
+    """
+
+    _renders: dict[str, SectionRender[DepsT]] = field(default_factory=dict)
+    _runs: dict[str, _RunSections] = field(default_factory=dict)
+
+    def section(self, render: SectionRender[DepsT]) -> Section[DepsT]:
+        """The instruction a run reads in place of ``render``."""
+        key = render.__qualname__
+        self._renders[key] = render
+
+        async def read(ctx: RunContext[DepsT]) -> str | None:
+            run = self._runs.get(ctx.run_id or "")
+            if run is None:
+                return await _rendered(render, ctx)
+            if key not in run.held:
+                run.held[key] = run.latest[key] = await _rendered(render, ctx)
+            return run.held[key]
+
+        read.__name__ = render.__name__
+        read.__qualname__ = render.__qualname__
+        return read
+
+    async def wrap_run(
+        self,
+        ctx: RunContext[DepsT],
+        *,
+        handler: WrapRunHandler,
+    ) -> AgentRunResult[Any]:
+        run_id = ctx.run_id or ""
+        self._runs[run_id] = _RunSections()
+        try:
+            return await handler()
+        finally:
+            self._runs.pop(run_id, None)
+
+    async def after_tool_execute(
+        self,
+        ctx: RunContext[DepsT],
+        *,
+        call: ToolCallPart,
+        tool_def: ToolDefinition,
+        args: Any,
+        result: Any,
+    ) -> Any:
+        del call, tool_def, args
+        run = self._runs.get(ctx.run_id or "")
+        if run is None:
+            return result
+        changed: list[UserContent] = []
+        for key, before in list(run.latest.items()):
+            now = await _rendered(self._renders[key], ctx)
+            if now == before:
+                continue
+            run.latest[key] = now
+            if now is not None:
+                changed.append(now)
+            elif before is not None:
+                changed.append(f"The section {_heading(before)} no longer applies.")
+        if not changed:
+            return result
+        return _with_update(result, [SECTION_UPDATE_LEAD, *changed])
+
+
+__all__ = [
+    "SECTION_UPDATE_LEAD",
+    "Section",
+    "SectionRender",
+    "StableInstructions",
+    "briefing_now",
+    "is_section_update",
+]
