@@ -7,7 +7,7 @@ type JSONObject = dict[str, JsonValue]
 type JSONArray = list[JsonValue]
 
 type ModelProvider = Literal["openai", "anthropic", "google", "ollama", "mock"]
-type ReasoningEffort = Literal["none", "low", "medium", "high"]
+type ReasoningEffort = Literal["none", "low", "medium", "high", "xhigh", "max"]
 TierName = Literal["default", "quality", "balanced", "fast", "custom"]
 
 

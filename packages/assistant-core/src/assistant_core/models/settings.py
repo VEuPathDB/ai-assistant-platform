@@ -68,6 +68,18 @@ def _provider_settings(provider: str) -> ModelSettings:
     raise ValueError(msg)
 
 
+def _effort_settings(provider: str, effort: ReasoningEffort | None) -> ModelSettings:
+    """The effort as the provider takes it. Empty leaves the model's default."""
+    if effort is None or effort == "none":
+        return ModelSettings()
+    if effort != "max":
+        return ModelSettings(thinking=effort)
+    if provider == "openai":
+        # The Responses API names max, and its own effort wins over thinking.
+        return OpenAIResponsesModelSettings(openai_reasoning_effort="max")
+    return ModelSettings(thinking="xhigh")
+
+
 def build_model_settings(
     model_id: str,
     *,
@@ -75,11 +87,14 @@ def build_model_settings(
 ) -> ModelSettings:
     """Provider-correct settings for ``model_id``.
 
-    ``thinking`` is applied for ``low``, ``medium`` and ``high``; ``none`` and
-    ``None`` omit it, so the model uses its own default.
+    ``thinking`` from ``low`` to ``xhigh`` is the unified ``thinking`` setting.
+    ``max`` has no unified level: an OpenAI model gets it as
+    ``openai_reasoning_effort``, and every other provider gets ``xhigh``, the
+    highest unified level. ``none`` and ``None`` omit it, so the model uses its
+    own default.
     """
-    settings = _provider_settings(model_provider(model_id))
+    provider = model_provider(model_id)
+    settings = _provider_settings(provider)
     settings["timeout"] = _REQUEST_TIMEOUT_SECONDS
-    if thinking is not None and thinking != "none":
-        settings["thinking"] = thinking
+    settings.update(_effort_settings(provider, thinking))
     return settings

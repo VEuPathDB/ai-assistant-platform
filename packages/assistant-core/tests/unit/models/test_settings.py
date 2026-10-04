@@ -100,6 +100,50 @@ class TestBuildModelSettings:
         assert "thinking" not in data
 
 
+class TestTheTopEfforts:
+    """``xhigh`` is the highest unified level, and ``max`` is above it."""
+
+    def test_openai_at_max_carries_its_own_effort(self) -> None:
+        settings = build_model_settings("openai:gpt-5.6-luna", thinking="max")
+
+        assert settings.get("openai_reasoning_effort") == "max"
+        assert "thinking" not in settings
+        assert settings.get("openai_send_reasoning_ids") is False
+
+    def test_openai_at_xhigh_carries_the_unified_level(self) -> None:
+        settings = build_model_settings("openai:gpt-5.6-luna", thinking="xhigh")
+
+        assert settings["thinking"] == "xhigh"
+        assert "openai_reasoning_effort" not in settings
+
+    def test_anthropic_at_max_carries_the_highest_unified_level(self) -> None:
+        settings = build_model_settings("anthropic:claude-opus-4-6", thinking="max")
+
+        assert settings["thinking"] == "xhigh"
+        assert "openai_reasoning_effort" not in settings
+        assert settings.get("anthropic_cache_messages") is True
+
+    def test_google_at_max_carries_the_highest_unified_level(self) -> None:
+        settings = build_model_settings("google:gemini-3.1-pro-preview", thinking="max")
+
+        assert settings["thinking"] == "xhigh"
+        assert "openai_reasoning_effort" not in settings
+
+    def test_ollama_at_max_carries_the_highest_unified_level(self) -> None:
+        """Ollama speaks Chat Completions, so the Responses effort is not its own."""
+        settings = build_model_settings("ollama:qwen3", thinking="max")
+
+        assert settings["thinking"] == "xhigh"
+        assert "openai_reasoning_effort" not in settings
+
+    def test_none_and_unset_still_leave_the_effort_to_the_model(self) -> None:
+        for effort in ("none", None):
+            settings = build_model_settings("openai:gpt-5.6-luna", thinking=effort)
+
+            assert "thinking" not in settings, effort
+            assert "openai_reasoning_effort" not in settings, effort
+
+
 class TestEveryRequestCarriesATimeout:
     """A provider request that never returns must fail instead of hanging."""
 
@@ -113,7 +157,7 @@ class TestEveryRequestCarriesATimeout:
         assert build_model_settings("google:gemini-2.5-pro")["timeout"] == 900
 
     def test_timeout_survives_every_thinking_effort(self) -> None:
-        for effort in ("none", "low", "medium", "high"):
+        for effort in ("none", "low", "medium", "high", "xhigh", "max"):
             for model in ("openai:gpt-5.6-luna", "anthropic:claude-opus-4-6"):
                 settings = build_model_settings(model, thinking=effort)
 
@@ -142,7 +186,7 @@ class TestOpenAiItemIdsAreNotSentBack:
         assert settings.get("openai_send_reasoning_ids") is False
 
     def test_it_is_disabled_regardless_of_thinking_effort(self) -> None:
-        for effort in ("none", "low", "medium", "high"):
+        for effort in ("none", "low", "medium", "high", "xhigh", "max"):
             settings = build_model_settings("openai:gpt-5.6-luna", thinking=effort)
 
             assert settings.get("openai_send_reasoning_ids") is False, effort

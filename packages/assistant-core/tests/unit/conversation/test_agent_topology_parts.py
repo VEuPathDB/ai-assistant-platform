@@ -54,6 +54,17 @@ def test_lead_usage_event_carries_the_reasoning_effort() -> None:
     assert chunk.data["reasoningEffort"] == "high"
 
 
+def test_lead_usage_event_carries_the_top_efforts() -> None:
+    for effort in ("xhigh", "max"):
+        chunk = lead_usage_event(
+            model_id="openai:gpt-5.6-luna",
+            tokens=999,
+            cost_usd="0.012",
+            reasoning_effort=effort,
+        )
+        assert chunk.data["reasoningEffort"] == effort
+
+
 def test_lead_usage_reasoning_effort_defaults_to_unknown() -> None:
     payload = LeadUsagePayload(model_id="openai:gpt-4.1")
     assert payload.reasoning_effort is None

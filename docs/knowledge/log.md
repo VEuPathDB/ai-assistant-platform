@@ -1,5 +1,20 @@
 # Log
 
+## 2026-10-04
+
+A deployment can run a model at its highest effort.
+`assistant_core.platform.types.ReasoningEffort` adds `xhigh` and `max`, so
+`phaseReasoning`, `PhaseOverrides`, the task row a completion turn reads back
+and the lead-usage part's `reasoningEffort` all take them.
+`models/settings.py::build_model_settings` sends `low` to `xhigh` as
+pydantic-ai's unified `thinking`. The unified setting stops at `xhigh`, so
+`max` is `openai_reasoning_effort` on an `openai:` model, which the Responses
+API reads before `thinking`, and `thinking="xhigh"` on every other provider.
+pydantic-ai sends `openai_reasoning_effort` whatever the model's profile says,
+so a deployment pairs `max` only with a reasoning model. `PROTOCOL.md` and the
+TypeScript client name no effort value and are unchanged.
+`assistant-core` is 0.3.0a22.
+
 ## 2026-09-28
 
 Tracing is the runtime's, installed once per process.
