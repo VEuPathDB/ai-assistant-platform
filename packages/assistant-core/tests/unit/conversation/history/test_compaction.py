@@ -12,11 +12,13 @@ from pydantic_ai.messages import (
     TextPart,
     ToolCallPart,
     ToolReturnPart,
-    UserContent,
     UserPromptPart,
 )
 
-from assistant_core.capabilities.stable_instructions import SECTION_UPDATE_LEAD
+from assistant_core.capabilities.stable_instructions import (
+    SECTION_UPDATE_LEAD,
+    section_update,
+)
 from assistant_core.conversation.history.compaction import (
     _DIGEST_CHAR_CAP,
     _DIGEST_OPENING,
@@ -438,7 +440,7 @@ def test_a_folded_image_is_named_in_the_digest() -> None:
 def test_a_compacted_section_update_is_carried_whole_and_never_quoted_as_the_user() -> (
     None
 ):
-    update: list[UserContent] = [SECTION_UPDATE_LEAD, "## Stage\nbuilt"]
+    update = section_update(["## Stage\nbuilt"])
     messages: list[ModelMessage] = [
         _user("Find kinases"),
         ModelResponse(parts=[_call("c1")]),

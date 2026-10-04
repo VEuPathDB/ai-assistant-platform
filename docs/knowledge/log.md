@@ -1,5 +1,20 @@
 # Log
 
+## 2026-10-05
+
+- A section update reaches the model as a system note.
+  `StableInstructions.before_model_request` sends each kept update as a
+  `SystemPromptPart` in place, the same way on every request, so a model never
+  reads it as a new message from the user; OpenAI receives it in the system role,
+  and a model without inline system prompts receives pydantic-ai's tagged text.
+  `section_update(sections)` is the one text an update carries:
+  `SECTION_UPDATE_LEAD`, which says it is no message from the user, then the
+  sections separated by a rule line. `is_section_update` and `briefing_now` read
+  it in either voice, and compaction carries it in either. The scripted model
+  declares inline system prompts, so its scripts read the history OpenAI reads.
+
+`assistant-core` is 0.3.0a24.
+
 ## 2026-10-04
 
 A deployment can run a model at its highest effort.

@@ -4,10 +4,11 @@ run extends the one before it."""
 
 from __future__ import annotations
 
+import dataclasses
 import inspect
 import re
 from collections.abc import Awaitable, Callable, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any
 
 from pydantic_ai import RunContext
@@ -15,11 +16,14 @@ from pydantic_ai.capabilities.abstract import AbstractCapability, WrapRunHandler
 from pydantic_ai.messages import (
     ModelMessage,
     ModelRequest,
+    ModelRequestPart,
+    SystemPromptPart,
     ToolCallPart,
     ToolReturn,
     UserContent,
     UserPromptPart,
 )
+from pydantic_ai.models import ModelRequestContext
 from pydantic_ai.run import AgentRunResult
 from pydantic_ai.tools import ToolDefinition
 
@@ -29,9 +33,11 @@ type SectionRender[DepsT] = Callable[
 type Section[DepsT] = Callable[[RunContext[DepsT]], Awaitable[str | None]]
 
 SECTION_UPDATE_LEAD = (
-    "This call changed the briefing. Each section below replaces the section of "
-    "the same heading in your instructions."
+    "Briefing update, not a message from the user. The call above changed these "
+    "sections of your instructions; each one below replaces the section of the "
+    "same heading."
 )
+_SECTION_SEPARATOR = "\n\n---\n\n"
 
 _HEADING = re.compile(r"^(#+) ")
 # A heading's trailing parenthesis carries counts, so it names no other section.
@@ -39,18 +45,34 @@ _HEADING_SUFFIX = re.compile(r"\s*\([^)]*\)\s*$")
 _GONE = re.compile(r"^The section (?P<heading>.+) no longer applies\.$")
 
 
-def is_section_update(part: UserPromptPart) -> bool:
-    """Whether a user-prompt part carries section updates rather than the user's words."""
-    return bool(_update_items(part))
+def section_update(sections: Sequence[str]) -> str:
+    """The text that sends ``sections``, each replacing its namesake."""
+    return f"{SECTION_UPDATE_LEAD}\n\n{_SECTION_SEPARATOR.join(sections)}"
 
 
-def _update_items(part: UserPromptPart) -> list[str]:
+def _texts(part: UserPromptPart | SystemPromptPart) -> list[str]:
+    content = part.content
+    items = [content] if isinstance(content, str) else list(content)
+    return [item for item in items if isinstance(item, str)]
+
+
+def _update_text(part: UserPromptPart | SystemPromptPart) -> str | None:
+    return next(
+        (text for text in _texts(part) if text.startswith(SECTION_UPDATE_LEAD)), None
+    )
+
+
+def is_section_update(part: UserPromptPart | SystemPromptPart) -> bool:
+    """Whether a part carries section updates rather than the user's words."""
+    return _update_text(part) is not None
+
+
+def _update_items(part: UserPromptPart | SystemPromptPart) -> list[str]:
     """The sections a part sends after the update lead, in order."""
-    items = [part.content] if isinstance(part.content, str) else list(part.content)
-    texts = [item if isinstance(item, str) else "" for item in items]
-    if SECTION_UPDATE_LEAD not in texts:
+    text = _update_text(part)
+    if text is None:
         return []
-    return texts[texts.index(SECTION_UPDATE_LEAD) + 1 :]
+    return text.removeprefix(SECTION_UPDATE_LEAD).lstrip("\n").split(_SECTION_SEPARATOR)
 
 
 def _section_key(line: str) -> str:
@@ -101,7 +123,7 @@ def briefing_now(instructions: str, messages: Sequence[ModelMessage]) -> str:
         if not isinstance(message, ModelRequest):
             continue
         for part in message.parts:
-            if not isinstance(part, UserPromptPart):
+            if not isinstance(part, UserPromptPart | SystemPromptPart):
                 continue
             for item in _update_items(part):
                 gone = _GONE.match(item)
@@ -135,13 +157,13 @@ def _sent_after(content: str | Sequence[UserContent] | None) -> list[UserContent
             return list(content)
 
 
-def _with_update(result: Any, update: list[UserContent]) -> Any:
+def _with_update(result: Any, update: str) -> Any:
     """The tool's result with ``update`` sent to the model after it."""
     match result:
         case ToolReturn():
             return ToolReturn(
                 return_value=result.return_value,
-                content=[*_sent_after(result.content), *update],
+                content=[*_sent_after(result.content), update],
                 metadata=result.metadata,
             )
         case _:
@@ -162,8 +184,8 @@ class StableInstructions[DepsT](AbstractCapability[DepsT]):
 
     Register a section with ``agent.instructions(stable.section(render))`` and
     add this capability to the agent. Outside a run a section renders as it
-    stands. An update sends each changed section as its own item after
-    ``SECTION_UPDATE_LEAD``.
+    stands. An update follows the tool result as a system note, in history and on
+    the wire.
     """
 
     _renders: dict[str, SectionRender[DepsT]] = field(default_factory=dict)
@@ -212,7 +234,7 @@ class StableInstructions[DepsT](AbstractCapability[DepsT]):
         run = self._runs.get(ctx.run_id or "")
         if run is None:
             return result
-        changed: list[UserContent] = []
+        changed: list[str] = []
         for key, before in list(run.latest.items()):
             now = await _rendered(self._renders[key], ctx)
             if now == before:
@@ -224,7 +246,36 @@ class StableInstructions[DepsT](AbstractCapability[DepsT]):
                 changed.append(f"The section {_heading(before)} no longer applies.")
         if not changed:
             return result
-        return _with_update(result, [SECTION_UPDATE_LEAD, *changed])
+        return _with_update(result, section_update(changed))
+
+    async def before_model_request(
+        self,
+        ctx: RunContext[DepsT],
+        request_context: ModelRequestContext,
+    ) -> ModelRequestContext:
+        """Send each kept update as a system note, the same way on every request."""
+        del ctx
+        return replace(
+            request_context,
+            messages=[_as_system_notes(m) for m in request_context.messages],
+        )
+
+
+def _as_system_notes(message: ModelMessage) -> ModelMessage:
+    """The message with each section update it keeps sent in the system voice."""
+    if not isinstance(message, ModelRequest):
+        return message
+    parts: list[ModelRequestPart] = []
+    for part in message.parts:
+        update = _update_text(part) if isinstance(part, UserPromptPart) else None
+        if update is None or not isinstance(part, UserPromptPart):
+            parts.append(part)
+            continue
+        own = [item for item in _sent_after(part.content) if item != update]
+        if own:
+            parts.append(dataclasses.replace(part, content=own))
+        parts.append(SystemPromptPart(content=update, timestamp=part.timestamp))
+    return dataclasses.replace(message, parts=parts)
 
 
 __all__ = [
@@ -234,4 +285,5 @@ __all__ = [
     "StableInstructions",
     "briefing_now",
     "is_section_update",
+    "section_update",
 ]

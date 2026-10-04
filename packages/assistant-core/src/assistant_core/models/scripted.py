@@ -30,6 +30,7 @@ from pydantic_ai.messages import (
     UserPromptPart,
 )
 from pydantic_ai.models.function import AgentInfo, DeltaToolCall, FunctionModel
+from pydantic_ai.profiles import ModelProfile
 
 from assistant_core.capabilities.stable_instructions import is_section_update
 
@@ -245,8 +246,10 @@ class ScriptedModel:
                 ),
             }
 
+        # A system note inside the history reaches the scripts as OpenAI sends it.
         return FunctionModel(
             _respond,
             stream_function=_stream,
             model_name=self.model_name,
+            profile=ModelProfile(supports_inline_system_prompts=True),
         )

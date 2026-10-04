@@ -183,7 +183,7 @@ builds, so every request of a run extends the one before it.
 - `capabilities.stable_instructions.StableInstructions` holds each instruction
   section a run reads to the text the run first read. A section is registered
   as `agent.instructions(stable.section(render))` beside the capability; a
-  section a tool call changes is sent after that call's result, under
+  section a tool call changes follows that call's result as a system note, under
   `capabilities.stable_instructions.SECTION_UPDATE_LEAD`.
 - `capabilities.allowed_tools.AllowedTools` sends every function tool on every
   request. Each of its rules names the tools the model may not call now; OpenAI

@@ -9,14 +9,15 @@ from pydantic_ai.messages import (
     ModelResponse,
     ToolCallPart,
     ToolReturnPart,
-    UserContent,
     UserPromptPart,
 )
 
-from assistant_core.capabilities.stable_instructions import SECTION_UPDATE_LEAD
+from assistant_core.capabilities.stable_instructions import (
+    section_update,
+)
 from assistant_core.models.scripted import current_turn, user_texts
 
-_UPDATE: list[UserContent] = [SECTION_UPDATE_LEAD, "## Stage\nbuilt"]
+_UPDATE = section_update(["## Stage\nbuilt"])
 
 _RUN: list[ModelMessage] = [
     ModelRequest(parts=[UserPromptPart(content="Find kinases")]),

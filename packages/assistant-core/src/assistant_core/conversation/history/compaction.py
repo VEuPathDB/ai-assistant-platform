@@ -241,7 +241,9 @@ def _head_without_digests(
     return kept, prior
 
 
-def _section_updates(middle: Sequence[ModelMessage]) -> list[UserPromptPart]:
+def _section_updates(
+    middle: Sequence[ModelMessage],
+) -> list[UserPromptPart | SystemPromptPart]:
     """The section updates the compacted messages carried, whole and in order,
     so the latest text of every section outlives the compaction."""
     return [
@@ -249,7 +251,8 @@ def _section_updates(middle: Sequence[ModelMessage]) -> list[UserPromptPart]:
         for msg in middle
         if isinstance(msg, ModelRequest)
         for part in msg.parts
-        if isinstance(part, UserPromptPart) and is_section_update(part)
+        if isinstance(part, UserPromptPart | SystemPromptPart)
+        and is_section_update(part)
     ]
 
 

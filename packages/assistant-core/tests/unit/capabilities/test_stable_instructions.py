@@ -1,6 +1,6 @@
 """A run reads each section as the run found it, and a section a tool call
-changed reaches the model after that call's result, so every request of the
-run extends the one before it."""
+changed reaches the model after that call's result as a system note, so every
+request of the run extends the one before it."""
 
 from __future__ import annotations
 
@@ -11,19 +11,24 @@ from pydantic_ai.messages import (
     ModelMessage,
     ModelRequest,
     ModelResponse,
+    SystemPromptPart,
     TextPart,
     ToolCallPart,
     ToolReturn,
     UserPromptPart,
 )
 from pydantic_ai.models.function import AgentInfo, FunctionModel
+from pydantic_ai.profiles import ModelProfile
 from pydantic_ai.usage import RunUsage
 
 from assistant_core.capabilities.stable_instructions import (
-    SECTION_UPDATE_LEAD,
     StableInstructions,
     briefing_now,
+    section_update,
 )
+
+# The system voice inside a history, as OpenAI's profile sends it.
+_INLINE_SYSTEM = ModelProfile(supports_inline_system_prompts=True)
 
 
 @dataclass
@@ -60,7 +65,9 @@ def _agent(board: _Board, *, calls: int = 1) -> Agent[_Board, str]:
 
     stable = StableInstructions[_Board]()
     agent: Agent[_Board, str] = Agent(
-        FunctionModel(_model), deps_type=_Board, capabilities=[stable]
+        FunctionModel(_model, profile=_INLINE_SYSTEM),
+        deps_type=_Board,
+        capabilities=[stable],
     )
     for render in (_rules, _stage, _fading):
         agent.instructions(stable.section(render))
@@ -75,9 +82,17 @@ def _agent(board: _Board, *, calls: int = 1) -> Agent[_Board, str]:
     return agent
 
 
-def _update_items(message: ModelMessage) -> list[object]:
+def _sent_after_the_result(message: ModelMessage) -> list[object]:
+    """What the model is sent after a tool result: user content and system notes."""
     assert isinstance(message, ModelRequest)
-    return [part.content for part in message.parts if isinstance(part, UserPromptPart)]
+    return [
+        part.content
+        for part in message.parts
+        if isinstance(part, UserPromptPart | SystemPromptPart)
+    ]
+
+
+_BUILT = section_update(["## Stage\nbuilt", "The section ## Draft no longer applies."])
 
 
 async def test_every_request_of_a_run_reads_the_same_instructions() -> None:
@@ -90,21 +105,32 @@ async def test_every_request_of_a_run_reads_the_same_instructions() -> None:
     assert "## Stage\nplanned" in first
 
 
-async def test_a_changed_section_follows_the_result_of_the_call_that_changed_it() -> (
+async def test_a_changed_section_follows_the_call_that_changed_it_as_a_system_note() -> (
     None
 ):
     board = _Board()
 
     await _agent(board).run("go", deps=board)
 
-    _, messages = board.seen[1]
-    assert _update_items(messages[-1]) == [
-        [
-            SECTION_UPDATE_LEAD,
-            "## Stage\nbuilt",
-            "The section ## Draft no longer applies.",
-        ]
+    request = board.seen[1][1][-1]
+    assert _sent_after_the_result(request) == [_BUILT]
+    assert isinstance(request, ModelRequest)
+    assert isinstance(request.parts[-1], SystemPromptPart)
+
+
+async def test_history_keeps_the_update_as_a_system_note_after_the_result() -> None:
+    board = _Board()
+
+    result = await _agent(board).run("go", deps=board)
+
+    kept = [
+        part.content
+        for message in result.all_messages()
+        if isinstance(message, ModelRequest)
+        for part in message.parts
+        if isinstance(part, SystemPromptPart)
     ]
+    assert kept == [_BUILT]
 
 
 async def test_each_request_extends_the_one_before_it() -> None:
@@ -122,8 +148,7 @@ async def test_a_section_no_call_changed_is_not_sent_again() -> None:
 
     await _agent(board, calls=2).run("go", deps=board)
 
-    _, messages = board.seen[2]
-    assert _update_items(messages[-1]) == []
+    assert _sent_after_the_result(board.seen[2][1][-1]) == []
 
 
 async def test_a_new_run_reads_the_sections_as_they_stand() -> None:
@@ -162,7 +187,9 @@ async def test_a_tool_that_sends_its_own_content_keeps_it_before_the_update() ->
         return ModelResponse(parts=[TextPart("done")])
 
     agent: Agent[_Board, str] = Agent(
-        FunctionModel(_model), deps_type=_Board, capabilities=[stable]
+        FunctionModel(_model, profile=_INLINE_SYSTEM),
+        deps_type=_Board,
+        capabilities=[stable],
     )
     agent.instructions(stable.section(_stage))
 
@@ -174,10 +201,9 @@ async def test_a_tool_that_sends_its_own_content_keeps_it_before_the_update() ->
 
     await agent.run("go", deps=board)
 
-    request = board.seen[1][1][-1]
-    assert isinstance(request, ModelRequest)
-    assert [p.content for p in request.parts if isinstance(p, UserPromptPart)] == [
-        ["the step was pushed", SECTION_UPDATE_LEAD, "## Stage\nbuilt"]
+    assert _sent_after_the_result(board.seen[1][1][-1]) == [
+        ["the step was pushed"],
+        section_update(["## Stage\nbuilt"]),
     ]
 
 
@@ -192,11 +218,9 @@ def test_the_briefing_now_reads_each_updated_section_in_its_place() -> None:
         ModelRequest(
             parts=[
                 UserPromptPart(
-                    content=[
-                        SECTION_UPDATE_LEAD,
-                        "# Ledger\n## Frame\nbound",
-                        "## Notes (1 notes)\nkept",
-                    ]
+                    content=section_update(
+                        ["# Ledger\n## Frame\nbound", "## Notes (1 notes)\nkept"]
+                    )
                 )
             ]
         )
@@ -212,11 +236,8 @@ def test_a_section_that_no_longer_applies_leaves_the_briefing() -> None:
     updates = [
         ModelRequest(
             parts=[
-                UserPromptPart(
-                    content=[
-                        SECTION_UPDATE_LEAD,
-                        "The section ## Stage no longer applies.",
-                    ]
+                SystemPromptPart(
+                    content=section_update(["The section ## Stage no longer applies."])
                 )
             ]
         )
@@ -227,9 +248,7 @@ def test_a_section_that_no_longer_applies_leaves_the_briefing() -> None:
 
 def test_a_section_the_run_began_without_joins_the_end_of_the_briefing() -> None:
     updates = [
-        ModelRequest(
-            parts=[UserPromptPart(content=[SECTION_UPDATE_LEAD, "## Draft\nopen"])]
-        )
+        ModelRequest(parts=[UserPromptPart(content=section_update(["## Draft\nopen"]))])
     ]
 
     assert briefing_now(_PINNED, updates).endswith(
