@@ -1,5 +1,15 @@
 # Log
 
+## 2026-10-06
+
+- Every response has an output cap. `build_model_settings` sets `max_tokens` to
+  32,000, and to 64,000 at `xhigh` and `max`, where the reasoning counts against
+  the cap; 64,000 is the smallest output limit of a served model. A model that
+  loops inside one response used to stream to its own limit, because the request
+  timeout ends a silent stream and not one that keeps sending. Anthropic received
+  pydantic-ai's 4,096 default before, and now receives the same cap.
+  `assistant-core` is 0.3.0b2.
+
 ## 2026-10-05
 
 - A section update reaches the model as a system note.

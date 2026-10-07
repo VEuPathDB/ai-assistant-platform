@@ -18,6 +18,9 @@ from assistant_core.platform.types import ReasoningEffort
 
 # A hung provider request must fail, and a reasoning model can need minutes.
 _REQUEST_TIMEOUT_SECONDS = 900
+_OUTPUT_TOKEN_CAP = 32_000
+_DEEP_EFFORT_OUTPUT_TOKEN_CAP = 64_000
+_DEEP_EFFORTS: frozenset[ReasoningEffort] = frozenset({"xhigh", "max"})
 
 
 def model_provider(model_id: str) -> str:
@@ -96,5 +99,10 @@ def build_model_settings(
     provider = model_provider(model_id)
     settings = _provider_settings(provider)
     settings["timeout"] = _REQUEST_TIMEOUT_SECONDS
+    settings["max_tokens"] = (
+        _DEEP_EFFORT_OUTPUT_TOKEN_CAP
+        if thinking in _DEEP_EFFORTS
+        else _OUTPUT_TOKEN_CAP
+    )
     settings.update(_effort_settings(provider, thinking))
     return settings

@@ -173,6 +173,34 @@ class TestEveryRequestCarriesATimeout:
         assert openai["thinking"] == "high"
 
 
+class TestEveryResponseHasAnOutputCap:
+    def test_every_provider_caps_a_response_below_deep_effort(self) -> None:
+        for model in (
+            "openai:gpt-5.6-luna",
+            "anthropic:claude-haiku-4-5",
+            "google:gemini-2.5-pro",
+            "ollama:llama3",
+            "mock:deterministic",
+        ):
+            for effort in (None, "none", "low", "medium", "high"):
+                settings = build_model_settings(model, thinking=effort)
+
+                assert settings["max_tokens"] == 32_000, (model, effort)
+
+    def test_deep_effort_leaves_room_for_its_reasoning(self) -> None:
+        for model in ("openai:gpt-5.6-luna", "anthropic:claude-haiku-4-5"):
+            for effort in ("xhigh", "max"):
+                settings = build_model_settings(model, thinking=effort)
+
+                assert settings["max_tokens"] == 64_000, (model, effort)
+
+    def test_the_cap_keeps_the_effort_and_the_timeout(self) -> None:
+        settings = build_model_settings("openai:gpt-5.6-luna", thinking="max")
+
+        assert settings["openai_reasoning_effort"] == "max"
+        assert settings["timeout"] == 900
+
+
 class TestOpenAiItemIdsAreNotSentBack:
     """The Responses API validates the item ids a request echoes back.
 
