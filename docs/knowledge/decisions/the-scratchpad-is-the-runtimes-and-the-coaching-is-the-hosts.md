@@ -1,10 +1,10 @@
 ---
 type: Decision
 title: The scratchpad is the runtime's and the coaching is the host's
-description: The runtime owns the notes, the nine tools, the toolset filter and the rendered index. What the model is told to write down and what is worth promoting arrive as a guidance argument, and a host attaches the toolset to whichever agents it wants.
+description: The runtime owns the notes, the nine tools, the withhold rule and the rendered index. What the model is told to write down and what is worth promoting arrive as a guidance argument, and a host attaches the toolset to whichever agents it wants.
 tags: [assistant-core, scratchpad, seams, tools]
 generated: { by: claude-code/opus-5, at: 2026-09-09T00:00:00Z }
-verified: { by: claude-code/opus-5, at: 2026-09-09T00:00:00Z }
+verified: { by: claude-code/opus-5, at: 2026-10-08T00:00:00Z }
 status: stable
 ---
 
@@ -12,7 +12,8 @@ status: stable
 
 `assistant_core.scratchpad` owns a thread's working notes: the models, the two
 tables, the repository, the notebook that opens a session per call, the nine
-tools, the toolset that filters them, and the index the agent reads.
+tools, the toolset that lists them, the withhold rule that says which of them
+the model may call now, and the index the agent reads.
 
 `build_scratchpad_toolset(promoted_kind=..., guidance=...)` returns an
 `AbstractToolset[AssistantDeps]`. A host passes it in the `toolsets` list of
@@ -80,6 +81,7 @@ budget drops the oldest unpinned notes while a pinned note is never dropped.
 `promote` sentence is appended to the `promote_to_memory` description, a host
 that supplies none gets the docstring alone, and the sentence reaches no other
 tool.
-`packages/assistant-core/tests/integration/scratchpad/test_tools_read.py`: an
-empty scratchpad offers only `note`, a filled one offers all nine, and a read
-tool called twice in a row disappears.
+`packages/assistant-core/tests/integration/scratchpad/test_tools_read.py`:
+under `withhold_scratchpad_tools`, an empty scratchpad lets the model call only
+`note`, a filled one all nine, and a read tool called twice in a row is
+withheld.

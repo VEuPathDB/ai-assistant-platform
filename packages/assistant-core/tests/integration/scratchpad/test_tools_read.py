@@ -1,4 +1,5 @@
-"""What the reading tools return, and what the toolset shows for them."""
+"""What the reading tools return, and which of them the withhold rule lets the
+model call."""
 
 from __future__ import annotations
 
@@ -16,7 +17,10 @@ from assistant_core.graph.runtime import AssistantDeps
 from assistant_core.platform.db import DBSessionFactory
 from assistant_core.scratchpad import tools
 from assistant_core.scratchpad.models import NoteListResult, NoteSearchResult
-from assistant_core.scratchpad.toolset import build_scratchpad_toolset
+from assistant_core.scratchpad.toolset import (
+    build_scratchpad_toolset,
+    withhold_scratchpad_tools,
+)
 
 
 def _ctx(
@@ -38,6 +42,12 @@ def _ctx(
         tool_call_id="tc-1",
         messages=messages or [],
     )
+
+
+async def _callable(ctx: RunContext[AssistantDeps]) -> list[str]:
+    listed = await build_scratchpad_toolset(promoted_kind="knowledge").get_tools(ctx)
+    withheld = await withhold_scratchpad_tools(ctx, list(listed))
+    return sorted(name for name in listed if name not in withheld)
 
 
 async def test_a_listing_reports_every_note_and_the_size_of_the_scratchpad(
@@ -199,9 +209,9 @@ async def test_an_empty_scratchpad_offers_only_the_tool_that_fills_it(
         db_session_factory=db_session_factory,
     )
 
-    offered = await build_scratchpad_toolset(promoted_kind="knowledge").get_tools(ctx)
+    offered = await _callable(ctx)
 
-    assert sorted(offered) == ["note"]
+    assert offered == ["note"]
 
 
 async def test_a_filled_scratchpad_offers_every_tool(
@@ -214,7 +224,7 @@ async def test_a_filled_scratchpad_offers_every_tool(
     )
     await tools.note(ctx, title="T", summary="S", body="B")
 
-    offered = await build_scratchpad_toolset(promoted_kind="knowledge").get_tools(ctx)
+    offered = await _callable(ctx)
 
     assert len(offered) == 9
 
@@ -223,7 +233,7 @@ async def test_a_read_tool_called_twice_in_a_row_disappears(
     conversation_id: UUID,
     db_session_factory: DBSessionFactory,
 ) -> None:
-    """Hiding the tool forces a different move before the next read."""
+    """Withholding the tool forces a different move before the next read."""
     seeding = _ctx(
         conversation_id=conversation_id,
         db_session_factory=db_session_factory,
@@ -238,7 +248,7 @@ async def test_a_read_tool_called_twice_in_a_row_disappears(
         ],
     )
 
-    offered = await build_scratchpad_toolset(promoted_kind="knowledge").get_tools(ctx)
+    offered = await _callable(ctx)
 
     assert "list_notes" not in offered
     assert "search_notes" in offered
