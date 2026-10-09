@@ -107,6 +107,10 @@ the limit is told is the host's. Every charge names its payer:
 has no default for `paid_by`, because only the host knows whose provider key a
 model call ran on. The limit counts `PaidBy.DEPLOYMENT` rows only, and
 `quota.get_period_totals(session, user_id, paid_by=...)` reads one payer's spend.
+A model the packaged price snapshot does not know costs nothing; a process that
+runs or shows one installs its prices first with
+`pricing.install_model_prices(prices)`, a list of `pricing.HostModelPrice`.
+An Anthropic model is built on `models.claude_profiles.ClaudeProvider`.
 
 # The worker
 

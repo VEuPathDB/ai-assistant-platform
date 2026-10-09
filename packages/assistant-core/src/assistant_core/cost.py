@@ -15,7 +15,13 @@ def cost_for_run(
     provider_name: str | None,
     provider_url: str | None,
 ) -> Decimal:
-    """Whole-run cost from ``RunUsage``: provider-url first, then by id."""
+    """Whole-run cost from ``RunUsage``.
+
+    The sum of the run's request costs comes first, because a price tier holds
+    per request. A usage without them is priced by provider url, then by id.
+    """
+    if usage.cost is not None:
+        return usage.cost
     if not model_name or not usage.has_values():
         return Decimal(0)
     if provider_url:

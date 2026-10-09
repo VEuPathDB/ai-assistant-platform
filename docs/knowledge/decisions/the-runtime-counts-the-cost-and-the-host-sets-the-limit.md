@@ -40,9 +40,11 @@ capped one. The runtime does not decide who paid: which key a model call ran on
 is the host's knowledge, and the charge carries it.
 
 `assistant_core.pricing.lookup_per_mtok_prices(provider, model, at=...)` reads
-the packaged `genai_prices` snapshot for one pair. Which pairs matter is the
-host's model catalog, so the function takes the pair and holds no catalog of its
-own. A snapshot price can start on a date or hold for part of a day, so the
+the `genai_prices` snapshot for one pair, with the prices a host installed ahead
+of the packaged ones
+([A host prices its own models](a-host-prices-its-own-models.md)). Which pairs
+matter is the host's model catalog, so the function takes the pair and holds no
+catalog of its own. A snapshot price can start on a date or hold for part of a day, so the
 lookup takes the instant to price at and defaults it to now.
 
 # What was rejected

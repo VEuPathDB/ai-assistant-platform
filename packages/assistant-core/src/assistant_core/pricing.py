@@ -2,12 +2,101 @@
 
 from __future__ import annotations
 
+import dataclasses
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import Decimal
 
-from genai_prices.data_snapshot import get_snapshot
-from genai_prices.types import ConditionalPrice, ModelPrice, TieredPrices
+from genai_prices import data
+from genai_prices.data_snapshot import DataSnapshot, get_snapshot, set_custom_snapshot
+from genai_prices.types import (
+    ClauseEquals,
+    ConditionalPrice,
+    ModelInfo,
+    ModelPrice,
+    Provider,
+    Tier,
+    TieredPrices,
+)
+from pydantic import BaseModel, ConfigDict, PositiveInt
+
+
+class TokenPrices(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    input_mtok: Decimal
+    cache_read_mtok: Decimal
+    cache_write_mtok: Decimal
+    output_mtok: Decimal
+
+
+class LongPrompt(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    above_tokens: PositiveInt
+    prices: TokenPrices
+
+
+class HostModelPrice(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    provider: str
+    model: str
+    prices: TokenPrices
+    long_prompt: LongPrompt | None = None
+
+    def _rate(self, base: Decimal, long: Decimal) -> Decimal | TieredPrices:
+        if self.long_prompt is None:
+            return base
+        return TieredPrices(
+            base=base, tiers=[Tier(start=self.long_prompt.above_tokens, price=long)]
+        )
+
+    def model_info(self) -> ModelInfo:
+        base = self.prices
+        long = base if self.long_prompt is None else self.long_prompt.prices
+        return ModelInfo(
+            id=self.model,
+            match=ClauseEquals(equals=self.model),
+            prices=ModelPrice(
+                input_mtok=self._rate(base.input_mtok, long.input_mtok),
+                cache_read_mtok=self._rate(base.cache_read_mtok, long.cache_read_mtok),
+                cache_write_mtok=self._rate(
+                    base.cache_write_mtok, long.cache_write_mtok
+                ),
+                output_mtok=self._rate(base.output_mtok, long.output_mtok),
+            ),
+        )
+
+
+def _with_host_models(
+    provider: Provider, added: dict[str, list[ModelInfo]]
+) -> Provider:
+    models = added.get(provider.id)
+    if models is None:
+        return provider
+    return dataclasses.replace(provider, models=[*models, *provider.models])
+
+
+def install_model_prices(prices: Iterable[HostModelPrice]) -> None:
+    added: dict[str, list[ModelInfo]] = {}
+    for price in prices:
+        added.setdefault(price.provider, []).append(price.model_info())
+    unknown = sorted(set(added) - {provider.id for provider in data.providers})
+    if unknown:
+        msg = f"the price snapshot names no provider {', '.join(unknown)}"
+        raise LookupError(msg)
+    set_custom_snapshot(
+        DataSnapshot(
+            providers=[_with_host_models(p, added) for p in data.providers],
+            from_auto_update=False,
+        )
+    )
+
+
+def reset_model_prices() -> None:
+    set_custom_snapshot(None)
 
 
 @dataclass(frozen=True)

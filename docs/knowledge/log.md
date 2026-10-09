@@ -1,5 +1,19 @@
 # Log
 
+## 2026-10-08
+
+- A host prices its own models. `pricing.install_model_prices` puts a host's
+  `HostModelPrice` rows (input, cache read, cache write and output per 1M tokens,
+  and the prices a prompt over a size pays) ahead of the packaged `genai-prices`
+  snapshot for every price reader of the process, and `reset_model_prices`
+  restores the snapshot. `cost_for_run` returns the per-request cost sum
+  pydantic-ai accumulates before it prices summed tokens, so a long-prompt price
+  holds per request. `models.claude_profiles.ClaudeProvider` lays the measured
+  request surface of Claude Haiku, Sonnet and Opus 5.5 over the packaged
+  pydantic-ai profile: Haiku 5.5 thinks adaptively at an effort, and Sonnet and
+  Opus 5.5 are never forced to a tool. One decision is new: a host prices its own
+  models, and a run costs the sum of its requests.
+
 ## 2026-10-06
 
 - Every response has an output cap. `build_model_settings` sets `max_tokens` to
