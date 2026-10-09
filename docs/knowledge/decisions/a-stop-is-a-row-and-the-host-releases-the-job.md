@@ -60,7 +60,7 @@ processes, so it belongs to this bundle.
 `packages/assistant-core/tests/integration/conversation/test_stop_protocol.py`:
 a stop writes the row the worker reads, a closed turn has nothing to stop, the
 newest open turn is the one stopped, a caller of another application is refused
-and releases no job, the owner's stop fails the job a dead worker held, a
+and releases no job, the owner's stop fails and deletes the job a dead worker held, a
 worker that never closes is reported pending, a stop on a dead worker's thread
 closes the stream it left open, and the wait ends as soon as the closing chunk
 lands.

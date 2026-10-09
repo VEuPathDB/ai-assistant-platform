@@ -116,6 +116,8 @@ def _hold(app: procrastinate.App, job_id: int) -> None:
 def _status(app: procrastinate.App, job_id: int) -> str:
     connector = app.connector
     assert isinstance(connector, InMemoryConnector)
+    if job_id not in connector.jobs:
+        return "deleted"
     return str(connector.jobs[job_id]["status"])
 
 
@@ -178,7 +180,7 @@ async def test_a_dead_worker_s_turn_is_closed_and_its_job_is_failed(
         "finish",
         "done",
     ]
-    assert _status(queue, job_id) == "failed"
+    assert _status(queue, job_id) == "deleted"
 
 
 async def test_the_closing_chunks_tell_the_user_to_send_the_message_again(
@@ -244,7 +246,7 @@ async def test_a_turn_that_already_closed_gets_no_second_terminator(
     await release_dead_turn(conversation_id)
 
     assert await _chunk_types(conversation_id) == ["start", "done"]
-    assert _status(queue, job_id) == "failed"
+    assert _status(queue, job_id) == "deleted"
 
 
 async def test_the_sweep_releases_every_job_no_live_worker_holds(
@@ -262,7 +264,7 @@ async def test_the_sweep_releases_every_job_no_live_worker_holds(
 
     await release_stalled_jobs()
 
-    assert _status(queue, job_id) == "failed"
+    assert _status(queue, job_id) == "deleted"
     assert await _chunk_types(conversation_id) == [
         "start",
         "error",
@@ -294,7 +296,7 @@ async def test_a_payload_the_contract_does_not_fit_still_releases_the_job(
         "Stalled chat turn carries no readable payload",
         "Released a stalled job",
     ]
-    assert _status(queue, job_id) == "failed"
+    assert _status(queue, job_id) == "deleted"
     assert await _chunk_types(conversation_id) == ["start"]
 
 
@@ -342,7 +344,7 @@ async def test_a_dead_worker_s_durable_task_is_failed_and_its_turn_answers(
     types = await _chunk_types(durable_runtime.conversation_id)
     assert "data-task-completed" in types
     assert types[-2:] == ["finish", "done"]
-    assert _status(task_queue, job_id) == "failed"
+    assert _status(task_queue, job_id) == "deleted"
 
 
 async def test_the_thread_is_told_the_task_failed_and_why(
@@ -434,7 +436,7 @@ async def test_a_second_sweep_does_not_open_a_duplicate_completion_turn(
 
     assert drives == [rows[0].id]
     assert (await _chunk_types(durable_runtime.conversation_id)).count("done") == 1
-    assert _status(task_queue, job_id) == "failed"
+    assert _status(task_queue, job_id) == "deleted"
 
 
 async def _held_host_task(
@@ -473,7 +475,7 @@ async def test_a_dead_worker_s_host_task_is_failed_and_the_thread_is_not_told(
     ]
     assert completion_turns == []
     assert await _chunks(host_thread.conversation_id) == []
-    assert _status(queue, job_id) == "failed"
+    assert _status(queue, job_id) == "deleted"
 
 
 async def test_a_host_task_result_recorded_before_the_worker_died_is_completed(

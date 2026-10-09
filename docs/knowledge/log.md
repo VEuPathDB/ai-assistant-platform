@@ -2,6 +2,10 @@
 
 ## 2026-10-09
 
+- A stalled job the sweep or a stop releases is failed and deleted in one call,
+  so its row does not keep the request and the sign-in token it carried. The
+  host's worker deletes every other job when it reaches a final state.
+
 - Protocol 2.1.0: `data-turn-withdrawn`. A run that raises `ModelDeclinedError`,
   or a bare `ContentFilterError`, is a decline: the emitter writes the part,
   naming the prompt that opened the turn, before the `error` chunk, because the

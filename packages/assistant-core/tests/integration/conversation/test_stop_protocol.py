@@ -68,6 +68,8 @@ async def _held_chat_turn(
 def _job_status(app: procrastinate.App, job_id: int) -> str:
     connector = app.connector
     assert isinstance(connector, InMemoryConnector)
+    if job_id not in connector.jobs:
+        return "deleted"
     return str(connector.jobs[job_id]["status"])
 
 
@@ -209,7 +211,7 @@ async def test_the_owner_stops_the_turn_and_a_dead_worker_s_job_is_released(
             user_id=owner,
         )
 
-    assert _job_status(queue, job_id) == "failed"
+    assert _job_status(queue, job_id) == "deleted"
     assert await turn_is_cancelled(conversation_id=conversation_id, turn_id=turn_id)
 
 
@@ -303,4 +305,4 @@ async def test_a_stop_on_a_dead_worker_s_thread_closes_the_stream_it_left_open(
     )
 
     assert pending == []
-    assert _job_status(queue, job_id) == "failed"
+    assert _job_status(queue, job_id) == "deleted"

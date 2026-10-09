@@ -123,7 +123,7 @@ async def release_dead_turn(conversation_id: UUID) -> None:
 
 
 async def _release_job(job: Job, reason: _StalledReason) -> None:
-    """Settle the job's work, then fail the job so its lock releases.
+    """Settle the job's work, then delete the failed job so its lock releases.
 
     The lease admits one releaser per job: a sweep runs on a schedule and takes
     no job lock, so without it a second pass re-enters a settlement the first
@@ -140,7 +140,7 @@ async def _release_job(job: Job, reason: _StalledReason) -> None:
         await task_app().job_manager.finish_job(
             job,
             status=Status.FAILED,
-            delete_job=False,
+            delete_job=True,
         )
         logger.warning(
             "Released a stalled job",
