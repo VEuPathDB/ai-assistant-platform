@@ -260,6 +260,7 @@ class StableInstructions[DepsT](AbstractCapability[DepsT]):
         request, and drop the notes of earlier runs: this run's instructions
         already hold every section as it stands."""
         tag = f"{_NOTE_REF}{ctx.run_id}"
+        ctx.messages[:] = [_as_system_notes(m, tag) for m in ctx.messages]
         return replace(
             request_context,
             messages=[_as_system_notes(m, tag) for m in request_context.messages],

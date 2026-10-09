@@ -1,5 +1,15 @@
 # Log
 
+## 2026-10-09
+
+- pydantic-ai is 2.54. Its packaged profile knows that Claude Sonnet 5.5 and
+  Opus 5.5 are never forced to a tool, so `models.claude_profiles` keeps only
+  the Claude Haiku 5.5 entry, which 2.54 does not know: adaptive thinking at an
+  effort, thinking when the request does not set it, no budget and no sampling
+  settings, a JSON schema output. A `before_model_request` hook now changes only
+  the request, so `StableInstructions` writes each system note to the run's
+  history through `RunContext.messages`. `assistant-core` is 0.3.0b4.
+
 ## 2026-10-08
 
 - A host prices its own models. `pricing.install_model_prices` puts a host's

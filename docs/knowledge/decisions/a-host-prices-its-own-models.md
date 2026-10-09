@@ -30,15 +30,17 @@ it joins the history and adds the cost to the run's `RunUsage.cost`.
 only for a usage that carries no cost. A long-prompt price is decided by one
 request's prompt, so only the per-request sum is right for it.
 
-**The measured Claude request surface.** The packaged pydantic-ai profile (2.41)
-sends `claude-haiku-5-5` a token-budget thinking setting, which the API answers
-with a 400 at every effort, and forces a tool on `claude-sonnet-5-5` and
-`claude-opus-5-5`, which they answer with a 400. `assistant_core.models.claude_profiles`
-lays what each model answered over the packaged profile: Haiku 5.5 thinks
-adaptively at an effort (up to `xhigh`), takes no budget and no sampling
-settings, and takes a JSON schema output; Sonnet 5.5 and Opus 5.5 are never
-forced to a tool. `ClaudeProvider` is an `AnthropicProvider` whose models carry
-that profile; a host builds its Anthropic models on it.
+**The measured Claude request surface.** The packaged pydantic-ai profile (2.54)
+does not know `claude-haiku-5-5` and gives it the generic Claude profile, which
+sends a token-budget thinking setting that the API answers with a 400 at every
+effort. `assistant_core.models.claude_profiles` lays what Haiku 5.5 answered over
+the packaged profile: it thinks adaptively at an effort (up to `xhigh`), thinks
+when the request does not set thinking, takes no budget and no sampling
+settings, and takes a JSON schema output; it still takes a forced tool choice.
+Every other model keeps the packaged profile, which already knows that Sonnet 5.5
+and Opus 5.5 are never forced to a tool. `ClaudeProvider` is an
+`AnthropicProvider` whose models carry that profile; a host builds its Anthropic
+models on it.
 
 # What was rejected
 
