@@ -1,6 +1,14 @@
-import { type ProtocolChunk, asChunk, readRecord, readString } from "./chunks.ts";
+import {
+  type ProtocolChunk,
+  asChunk,
+  asRecord,
+  fieldString,
+  readRecord,
+  readString,
+} from "./chunks.ts";
 import { type OpenMessage } from "./cursor.ts";
 import {
+  type AssistantMessage,
   type MessagePart,
   type MessageRole,
   type PromptMessage,
@@ -60,9 +68,22 @@ function envelopeMessage(chunk: ProtocolChunk): PromptMessage | undefined {
   };
 }
 
+const TURN_WITHDRAWN = "data-turn-withdrawn";
+
+function withdrawnPart(message: AssistantMessage): MessagePart | undefined {
+  return message.parts.find((part) => part.type === TURN_WITHDRAWN);
+}
+
+function withdrawnPrompt(part: MessagePart): string | undefined {
+  if (part.type !== TURN_WITHDRAWN) return undefined;
+  const data = asRecord(part.data);
+  return data === undefined ? undefined : fieldString(data, "messageId");
+}
+
 class ThreadBuilder {
   private readonly messages: ThreadMessage[] = [];
   private readonly taken = new Set<string>();
+  private readonly withdrawn = new Set<string>();
   private pending: ProtocolChunk[] = [];
   private pendingId: string | undefined;
 
@@ -73,9 +94,17 @@ class ThreadBuilder {
     this.messages.push(message);
   }
 
+  private withdraw(message: AssistantMessage): AssistantMessage {
+    const part = withdrawnPart(message);
+    if (part === undefined) return message;
+    const promptId = withdrawnPrompt(part);
+    if (promptId !== undefined) this.withdrawn.add(promptId);
+    return { ...message, parts: [part] };
+  }
+
   flush(): void {
     if (this.pending.length === 0) return;
-    this.push(reduceTurn(this.pending));
+    this.push(this.withdraw(reduceTurn(this.pending)));
     this.pending = [];
     this.pendingId = undefined;
   }
@@ -99,7 +128,7 @@ class ThreadBuilder {
 
   done(): ThreadMessage[] {
     this.flush();
-    return this.messages;
+    return this.messages.filter((message) => !this.withdrawn.has(message.id));
   }
 }
 

@@ -1,5 +1,5 @@
 {
-  "version": "2.0.1",
+  "version": "2.1.0",
   "chunkKinds": [
     "start",
     "start-step",
@@ -32,6 +32,7 @@
     "data-turn-usage",
     "data-turn-stopped",
     "data-turn-failed",
+    "data-turn-withdrawn",
     "data-conversation-title",
     "data-scratchpad-updated",
     "data-background-task-started",

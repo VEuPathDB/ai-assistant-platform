@@ -65,6 +65,7 @@ const NO_KINDS: ReadonlySet<string> = new Set();
 const WIRE_STATES: readonly TraceGroupState[] = ["started", "completed", "failed"];
 const TURN_STOPPED = "data-turn-stopped";
 const TURN_FAILED = "data-turn-failed";
+const TURN_WITHDRAWN = "data-turn-withdrawn";
 const STEP_STATUS: Record<SubAgentStepPayload["state"], TraceRowStatus> = {
   started: "running",
   completed: "ok",
@@ -275,7 +276,9 @@ function closingState(
   turnEnded: boolean,
 ): TraceGroupState | null {
   if (parts.some((part) => part.type === TURN_STOPPED)) return "cancelled";
-  if (parts.some((part) => part.type === TURN_FAILED)) return "failed";
+  if (parts.some((part) => part.type === TURN_FAILED || part.type === TURN_WITHDRAWN)) {
+    return "failed";
+  }
   return turnEnded ? "superseded" : null;
 }
 

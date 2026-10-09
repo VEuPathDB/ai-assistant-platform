@@ -19,6 +19,7 @@ from assistant_core.graph.stream_events import (
     TurnFailedPayload,
     TurnStatusPayload,
     TurnStoppedPayload,
+    TurnWithdrawnPayload,
 )
 from assistant_core.graph.turn_state import (
     ConsultQuestion,
@@ -34,6 +35,7 @@ def register_core_stream_parts(registry: StreamPartRegistry) -> None:
     registry.register("data-turn-status", TurnStatusPayload)
     registry.register("data-turn-stopped", TurnStoppedPayload)
     registry.register("data-turn-failed", TurnFailedPayload)
+    registry.register("data-turn-withdrawn", TurnWithdrawnPayload)
     registry.register("data-conversation-title", ConversationTitlePayload)
     registry.register("data-tool-summary", ToolSummaryPayload)
     registry.register("data-scratchpad-updated", ScratchpadUpdatedPayload)

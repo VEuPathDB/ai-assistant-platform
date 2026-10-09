@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 from typing import Any, Literal
 
 from langgraph.errors import GraphBubbleUp
+from pydantic_ai.exceptions import ContentFilterError
 from pydantic_ai.messages import (
     PartDeltaEvent,
     PartEndEvent,
@@ -29,6 +30,8 @@ from pydantic_ai.ui.vercel_ai.response_types import (
     ToolOutputErrorChunk,
 )
 
+from assistant_core.errors import ModelDeclinedError
+from assistant_core.graph.stream_events import turn_withdrawn_event
 from assistant_core.platform.logging import get_logger
 
 logger = get_logger(__name__)
@@ -39,6 +42,21 @@ logger = get_logger(__name__)
 VERCEL_AI_DSP_HEADERS: dict[str, str] = {
     "x-vercel-ai-ui-message-stream": "v1",
 }
+
+DECLINED_BY_THE_MODEL = (
+    "The model declined this request. Try rephrasing it, or pick a different model."
+)
+
+
+def declined_request(error: Exception) -> ModelDeclinedError | None:
+    match error:
+        case ModelDeclinedError():
+            return error
+        case ContentFilterError():
+            return ModelDeclinedError(DECLINED_BY_THE_MODEL)
+        case _:
+            return None
+
 
 _PHASE_STUB_INPUT: SubmitMessage = SubmitMessage(
     trigger="submit-message",
@@ -58,6 +76,7 @@ class PinnedVercelAIEventStream(VercelAIEventStream[Any, Any]):
     # ``self.message_id``. Once fixed, delete this class and use
     # ``VercelAIEventStream`` directly in ``PhaseStreamEmitter``.
 
+    prompt_message_id: str | None = None
     _index_to_message_id: dict[int, str] = field(default_factory=dict, init=False)
 
     async def on_error(
@@ -67,6 +86,11 @@ class PinnedVercelAIEventStream(VercelAIEventStream[Any, Any]):
         # GraphBubbleUp is langgraph control flow; re-raise so Pregel sees it.
         if isinstance(error, GraphBubbleUp):
             raise error
+        declined = declined_request(error)
+        if declined is not None:
+            async for chunk in self._withdraw(declined):
+                yield chunk
+            return
         logger.error(
             "pydantic-ai stream raised; converting to chat-visible ErrorChunk",
             exc_info=error,
@@ -74,6 +98,19 @@ class PinnedVercelAIEventStream(VercelAIEventStream[Any, Any]):
             error_msg=str(error),
         )
         async for chunk in super().on_error(error):
+            yield chunk
+
+    async def _withdraw(self, declined: ModelDeclinedError) -> AsyncIterator[BaseChunk]:
+        logger.warning(
+            "the model declined the turn's request",
+            model=declined.model_id,
+            withdrawn=self.prompt_message_id,
+        )
+        yield turn_withdrawn_event(
+            error_text=declined.text,
+            message_id=self.prompt_message_id,
+        )
+        async for chunk in super().on_error(declined):
             yield chunk
 
     async def handle_part_start(
@@ -143,6 +180,7 @@ class PhaseStreamEmitter:
     message_id: str
     sdk_version: Literal[5, 6] = 6
     deferred_hints: list[DeferredToolHint] = field(default_factory=list)
+    prompt_message_id: str | None = None
     _stream: PinnedVercelAIEventStream = field(init=False)
     _started_tool_call_ids: set[str] = field(default_factory=set, init=False)
 
@@ -151,6 +189,7 @@ class PhaseStreamEmitter:
             run_input=_PHASE_STUB_INPUT,
             sdk_version=self.sdk_version,
             server_message_id=self.message_id,
+            prompt_message_id=self.prompt_message_id,
         )
         self._stream.message_id = self.message_id
 

@@ -2,6 +2,18 @@
 
 ## 2026-10-09
 
+- Protocol 2.1.0: `data-turn-withdrawn`. A run that raises `ModelDeclinedError`,
+  or a bare `ContentFilterError`, is a decline: the emitter writes the part,
+  naming the prompt that opened the turn, before the `error` chunk, because the
+  AI SDK stops reading a turn at its `error` chunk. A host words the notice by
+  raising `ModelDeclinedError` itself. The one-agent graph never advances its
+  history past a run that raised, so the prompt is not sent again. The client's
+  snapshot reduction drops the prompt the part names and shows the turn as the
+  part alone, and a withdrawn turn closes its open work as failed. A turn that
+  resumes a parked call withdraws its run alone: its part names no prompt.
+  `assistant-core` is 0.3.0b5 and `@veupathdb/assistant-client` is
+  0.3.0-beta.2.
+
 - pydantic-ai is 2.54. Its packaged profile knows that Claude Sonnet 5.5 and
   Opus 5.5 are never forced to a tool, so `models.claude_profiles` keeps only
   the Claude Haiku 5.5 entry, which 2.54 does not know: adaptive thinking at an

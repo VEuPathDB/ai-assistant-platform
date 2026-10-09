@@ -1,6 +1,6 @@
 # The assistant runtime wire protocol
 
-**Version 2.0.1.** This document specifies the bytes a client exchanges with an
+**Version 2.1.0.** This document specifies the bytes a client exchanges with an
 assistant built on `assistant_core`. It is written so a consumer in any
 language can implement a client from this page alone, with no reference to the
 JavaScript SDK that inspired the chunk vocabulary. Section 14 records what each
@@ -185,6 +185,7 @@ The runtime defines these. An assistant MAY register more.
 | `data-turn-usage` | Running tokens and cost for the turn. Transient. |
 | `data-turn-stopped` | The user stopped this turn. |
 | `data-turn-failed` | This turn ended in a failure. Carries the failure's text. |
+| `data-turn-withdrawn` | The model declined this turn's request, so the turn withdraws its run, and the prompt that opened it when there is one. Carries the reader's text and, for a turn opened by a prompt, the prompt's `messageId`. |
 | `data-conversation-title` | The thread's generated title. |
 | `data-scratchpad-updated` | The assistant's notes changed. A reader that shows them reads them again. |
 | `data-background-task-started` | A durable tool was deferred to a worker. |
@@ -238,6 +239,16 @@ carrying the same text, before `finish`. The `error` chunk stays the live
 signal a client shows while the turn streams; the part is its durable
 footprint, because the reduction rules of section 9 keep the part and keep no
 trace of the `error` chunk.
+
+A turn whose model declined the request writes `data-turn-withdrawn` before the
+`error` chunk, carrying the same text. It comes first because a reader that
+stops reading a turn at its `error` chunk still meets it. The turn's run is
+withdrawn: nothing it produced reaches a later model request, and the turn's
+own message keeps the withdrawn part as its only content. A turn opened by a
+prompt also names that `user-message` in `messageId`; the runtime never sends
+the prompt to a model again, and a reader removes the message it names from the
+conversation it shows, so the notice stands in the prompt's place. A turn that
+resumes a parked call opens with no prompt, so its part carries no `messageId`.
 
 A turn that ends with `finishReason: "error"` MUST first close every tool call
 it left open: one `tool-output-error` per call whose input was announced and
@@ -606,6 +617,10 @@ A client reduces a turn's chunks into one assistant message with an ordered
   `data`.
 - A chunk that addresses a part the client does not hold MUST be ignored, not
   treated as an error.
+- A message that holds a `data-turn-withdrawn` part is reduced to that part
+  alone, and the message its `messageId` names, when it names one, is removed
+  from the conversation, whether it came before the turn or is met later in the
+  log.
 
 The runtime's own reducer is `assistant_core.conversation.ui_message_reducer`.
 
@@ -856,6 +871,7 @@ data: {"type":"done","reason":"completed"}
 
 | Version | What it added |
 | --- | --- |
+| `2.1.0` | `data-turn-withdrawn` (sections 5.2, 6, 9): a turn whose model declined the request withdraws the prompt that opened it, and a reader removes that prompt and shows the turn's notice alone; a turn that resumes a parked call withdraws its run and names no prompt. Before this a declined prompt stayed in the thread, every later turn sent it to the model again, and the model declined each of them. |
 | `2.0.1` | Section 4 states what a client does with a snapshot whose last chunk is a prompt envelope: it opens a tail from the snapshot's cursor, and falls back to the snapshot when that tail answers `204`. Before this the section named the resume rule for an open message alone, and a running turn's snapshot ends at its prompt and names no open message, so a client had no rule that told it to follow the turn and showed the prompt with nothing after it. |
 | `2.0.0` | `data-lead-usage`, `data-sub-agent-call` and `data-sub-agent-step` leave the core vocabulary: the runtime emits none of them, and they describe one agent topology, so an assistant with a lead and sub-agents registers them itself. Section 6's rule for closing a part that carries its own state names no kind now, because it holds for any such part. `data-scratchpad-updated` joins the table: the runtime's own scratchpad tools emit it, and a reader that shows the notes reads them again when it arrives. Before this a client written from this page alone met a kind the page did not name, and implemented three kinds nothing here produces. |
 | `1.7.1` | Section 12.2's product-extension table is empty: the document names no host's own request field, and says a host documents the extensions its assistant reads. Before this the table carried one deployment's field, so a reader took a product's extension for part of the wire. The request examples carry a neutral site, mode and tool name for the same reason. |

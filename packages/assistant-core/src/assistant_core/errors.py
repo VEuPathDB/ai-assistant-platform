@@ -31,3 +31,10 @@ class TurnStillRunningError(AssistantCoreError):
             f"conversation {conversation_id} has a turn in flight; stop it first"
         )
         self.conversation_id = conversation_id
+
+
+class ModelDeclinedError(Exception):
+    def __init__(self, text: str, *, model_id: str | None = None) -> None:
+        super().__init__(text)
+        self.text = text
+        self.model_id = model_id

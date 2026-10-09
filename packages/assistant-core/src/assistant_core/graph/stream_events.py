@@ -183,6 +183,20 @@ def turn_failed_event(*, error_text: str) -> DataChunk:
     )
 
 
+class TurnWithdrawnPayload(CamelModel):
+    error_text: str
+    message_id: str | None = None
+
+
+def turn_withdrawn_event(*, error_text: str, message_id: str | None) -> DataChunk:
+    return DataChunk(
+        type="data-turn-withdrawn",
+        data=TurnWithdrawnPayload(
+            error_text=error_text, message_id=message_id
+        ).model_dump(by_alias=True, mode="json", exclude_none=True),
+    )
+
+
 class TurnStatusPayload(CamelModel):
     """Payload for the turn-status chunk. The model id travels on the first
     status of a turn only.

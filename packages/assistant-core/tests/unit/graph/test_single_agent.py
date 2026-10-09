@@ -16,6 +16,7 @@ from uuid import UUID, uuid4
 import pytest
 from langgraph.checkpoint.memory import InMemorySaver
 from pydantic_ai import Agent, Tool
+from pydantic_ai.exceptions import ContentFilterError
 from pydantic_ai.messages import (
     BinaryContent,
     ModelMessage,
@@ -29,6 +30,7 @@ from pydantic_ai.messages import (
 from pydantic_ai.models.function import AgentInfo, DeltaToolCall, FunctionModel
 from pydantic_ai.ui.vercel_ai.request_types import FileUIPart, ToolApprovalResponded
 
+from assistant_core.conversation.vercel_adapter import DECLINED_BY_THE_MODEL
 from assistant_core.graph import turn_message
 from assistant_core.graph.runtime import AssistantDeps, TurnContext
 from assistant_core.graph.single_agent import single_agent_graph
@@ -471,6 +473,7 @@ class _Thread:
         self.config: dict[str, Any] = {
             "configurable": {"thread_id": str(self.conversation_id)},
         }
+        self.prompt_ids: list[UUID] = []
 
     async def turn(
         self,
@@ -481,6 +484,7 @@ class _Thread:
     ) -> list[dict[str, Any]]:
         # Every turn of a thread is driven under a cancel of its own.
         self.context.cancel_event.clear()
+        self.prompt_ids.append(uuid4())
         start = TurnStart(
             conversation_id=self.conversation_id,
             user_id=self.context.user_id,
@@ -489,7 +493,7 @@ class _Thread:
             turn_message_id=uuid4(),
             turn_start_event_id=0,
             is_resume=approvals is not None,
-            user_message_id=uuid4(),
+            user_message_id=self.prompt_ids[-1],
             user_prompt=prompt,
             user_files=files,
             approval_responses=approvals or {},
@@ -649,3 +653,116 @@ async def test_an_image_from_an_earlier_turn_stays_in_the_thread_history() -> No
     assert _is_the_image(first[0])
     assert first[1] == "What does this blot show?"
     assert second == _SECOND_PROMPT
+
+
+_DECLINED_PROMPT = "Describe the virulence factors of this strain."
+
+
+def _declining_model(seen: _Seen) -> FunctionModel:
+    def _answer(messages: list[ModelMessage]) -> str:
+        seen.runs.append(list(messages))
+        if _DECLINED_PROMPT in _rendered(messages[-1:]):
+            msg = "Content filter triggered. Finish reason: 'refusal'"
+            raise ContentFilterError(msg)
+        if _CODE_WORD in _rendered(messages[:-1]):
+            return f"The code word is {_CODE_WORD}."
+        return "Noted."
+
+    def _respond(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
+        del info
+        return ModelResponse(parts=[TextPart(content=_answer(messages))])
+
+    async def _stream(
+        messages: list[ModelMessage],
+        info: AgentInfo,
+    ) -> AsyncIterator[str | dict[int, DeltaToolCall]]:
+        del info
+        yield _answer(messages)
+
+    return FunctionModel(_respond, stream_function=_stream, model_name="test:decline")
+
+
+async def test_a_declined_turn_withdraws_its_prompt() -> None:
+    thread = _Thread(_declining_model(_Seen()))
+
+    await thread.turn(_FIRST_PROMPT)
+    chunks = await thread.turn(_DECLINED_PROMPT)
+
+    assert [c for c in chunks if c["type"] in {"error", "data-turn-withdrawn"}] == [
+        {
+            "type": "data-turn-withdrawn",
+            "data": {
+                "errorText": DECLINED_BY_THE_MODEL,
+                "messageId": str(thread.prompt_ids[-1]),
+            },
+        },
+        {"type": "error", "errorText": DECLINED_BY_THE_MODEL},
+    ]
+
+
+async def test_the_turn_after_a_declined_one_never_sends_its_prompt() -> None:
+    seen = _Seen()
+    thread = _Thread(_declining_model(seen))
+
+    await thread.turn(_FIRST_PROMPT)
+    await thread.turn(_DECLINED_PROMPT)
+    chunks = await thread.turn(_SECOND_PROMPT)
+
+    assert _rendered(seen.runs[-1]) == f"{_FIRST_PROMPT} Noted. {_SECOND_PROMPT}"
+    assert _text(chunks) == f"The code word is {_CODE_WORD}."
+
+
+def _declines_after_the_tool(seen: _Seen) -> FunctionModel:
+    def _part(messages: list[ModelMessage]) -> ToolCallPart | TextPart:
+        seen.runs.append(list(messages))
+        if _returns(messages):
+            msg = "Content filter triggered. Finish reason: 'refusal'"
+            raise ContentFilterError(msg)
+        if _WIPE_PROMPT in _rendered(messages[-1:]):
+            return ToolCallPart(
+                tool_name=_WIPE_TOOL, args={}, tool_call_id=_WIPE_CALL_ID
+            )
+        return TextPart(content="Noted.")
+
+    def _respond(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
+        del info
+        return ModelResponse(parts=[_part(messages)])
+
+    async def _stream(
+        messages: list[ModelMessage],
+        info: AgentInfo,
+    ) -> AsyncIterator[str | dict[int, DeltaToolCall]]:
+        del info
+        part = _part(messages)
+        if isinstance(part, TextPart):
+            yield part.content
+            return
+        yield {
+            0: DeltaToolCall(
+                name=part.tool_name, json_args="{}", tool_call_id=part.tool_call_id
+            ),
+        }
+
+    return FunctionModel(_respond, stream_function=_stream, model_name="test:resume")
+
+
+async def test_a_resumed_turn_the_model_declined_withdraws_its_run_alone() -> None:
+    seen = _Seen()
+    thread = _Thread(
+        _declines_after_the_tool(seen),
+        tools=[Tool(wipe, requires_approval=True)],
+    )
+
+    await thread.turn(_FIRST_PROMPT)
+    await thread.turn(_WIPE_PROMPT)
+    declined = await thread.turn(
+        approvals={
+            _WIPE_CALL_ID: ToolApprovalResponded(id=_WIPE_CALL_ID, approved=True),
+        },
+    )
+    await thread.turn("and now")
+
+    assert [c for c in declined if c["type"] == "data-turn-withdrawn"] == [
+        {"type": "data-turn-withdrawn", "data": {"errorText": DECLINED_BY_THE_MODEL}},
+    ]
+    assert _rendered(seen.runs[-1]) == f"{_FIRST_PROMPT} Noted. and now"

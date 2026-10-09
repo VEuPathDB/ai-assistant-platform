@@ -102,6 +102,7 @@ class _AgentTurn:
     """What the run starts from: a new prompt, or an answered approval."""
 
     prompt: str | Sequence[UserContent] | None = None
+    prompt_message_id: str | None = None
     history: list[ModelMessage] | None = None
     results: DeferredToolResults | None = None
     hints: tuple[DeferredToolHint, ...] = ()
@@ -131,6 +132,9 @@ def _turn_for(state: TurnState) -> _AgentTurn:
             )
     return _AgentTurn(
         prompt=state.user_content,
+        prompt_message_id=(
+            None if state.user_message_id is None else str(state.user_message_id)
+        ),
         history=thread_history(state.thread_messages_json),
     )
 
@@ -206,6 +210,7 @@ async def _stream_answer[DepsT: GuardedDeps](
     emitter = PhaseStreamEmitter(
         message_id=str(uuid4()),
         deferred_hints=list(turn.hints),
+        prompt_message_id=turn.prompt_message_id,
     )
     guard = deps.tool_repetition_guard
 
