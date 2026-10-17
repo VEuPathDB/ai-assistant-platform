@@ -1,6 +1,6 @@
 # The assistant runtime wire protocol
 
-**Version 2.1.0.** This document specifies the bytes a client exchanges with an
+**Version 2.2.0.** This document specifies the bytes a client exchanges with an
 assistant built on `assistant_core`. It is written so a consumer in any
 language can implement a client from this page alone, with no reference to the
 JavaScript SDK that inspired the chunk vocabulary. Section 14 records what each
@@ -382,12 +382,18 @@ rule of section 9. A durable tool emits its summary before its output chunk, and
 that is conforming.
 
 `summary` is one line: no newline, at most 120 characters, and never the call's
-output re-serialised. `status` is `ok`, `empty` or `warn` and defaults to `ok`.
-`empty` says the call succeeded and found nothing, which a client SHOULD show
-differently from a call that found something, because a silent zero otherwise
-reads as a success.
+output re-serialised. `status` is `ok`, `empty`, `warn` or `corrected` and
+defaults to `ok`. `empty` says the call succeeded and found nothing, which a
+client SHOULD show differently from a call that found something, because a
+silent zero otherwise reads as a success.
 
-A failed call carries no `status`: its part is already in `output-error`.
+A failed call carries no `status`, with one exception: `corrected` says the
+call was handed back to the model to send again, and nothing failed. Its part
+is in `output-error` and its `summary` is the reason the call was handed back.
+A client SHOULD show a corrected call apart from a failed one, because a
+refusal the model recovers from otherwise reads as a failure. The runtime marks
+every call it hands back as a model retry; a tool marks a refusal of its own
+that it reports as a failed call.
 
 ## 7. Producer envelope
 
@@ -871,6 +877,7 @@ data: {"type":"done","reason":"completed"}
 
 | Version | What it added |
 | --- | --- |
+| `2.2.0` | `data-tool-summary` `status` `corrected` (section 6.3): a call handed back to the model to send again is marked apart from a call that failed. Before this both reached the client as `output-error` with nothing between them, so every refusal the model recovered from read as a failure. |
 | `2.1.0` | `data-turn-withdrawn` (sections 5.2, 6, 9): a turn whose model declined the request withdraws the prompt that opened it, and a reader removes that prompt and shows the turn's notice alone; a turn that resumes a parked call withdraws its run and names no prompt. Before this a declined prompt stayed in the thread, every later turn sent it to the model again, and the model declined each of them. |
 | `2.0.1` | Section 4 states what a client does with a snapshot whose last chunk is a prompt envelope: it opens a tail from the snapshot's cursor, and falls back to the snapshot when that tail answers `204`. Before this the section named the resume rule for an open message alone, and a running turn's snapshot ends at its prompt and names no open message, so a client had no rule that told it to follow the turn and showed the prompt with nothing after it. |
 | `2.0.0` | `data-lead-usage`, `data-sub-agent-call` and `data-sub-agent-step` leave the core vocabulary: the runtime emits none of them, and they describe one agent topology, so an assistant with a lead and sub-agents registers them itself. Section 6's rule for closing a part that carries its own state names no kind now, because it holds for any such part. `data-scratchpad-updated` joins the table: the runtime's own scratchpad tools emit it, and a reader that shows the notes reads them again when it arrives. Before this a client written from this page alone met a kind the page did not name, and implemented three kinds nothing here produces. |

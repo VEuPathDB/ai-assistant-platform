@@ -21,6 +21,7 @@ export const toolSummaryStatuses: readonly ToolSummaryStatus[] = [
   "ok",
   "empty",
   "warn",
+  "corrected",
 ];
 
 export const toolChunkKinds = [

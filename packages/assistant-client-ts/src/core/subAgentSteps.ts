@@ -3,7 +3,7 @@ import { asRecord, fieldString } from "./chunks.ts";
 export interface SubAgentStepPayload {
   parentToolCallId: string;
   kind: "tool" | "reasoning" | "text";
-  state: "started" | "completed" | "failed" | "denied";
+  state: "started" | "completed" | "failed" | "corrected" | "denied";
   toolCallId?: string | null;
   toolName?: string | null;
   args?: Record<string, unknown> | null;
@@ -30,6 +30,7 @@ const STATES: readonly SubAgentStepPayload["state"][] = [
   "started",
   "completed",
   "failed",
+  "corrected",
   "denied",
 ];
 

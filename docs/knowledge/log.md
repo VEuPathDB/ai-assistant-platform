@@ -1,5 +1,14 @@
 # Log
 
+## 2026-10-17
+
+- Protocol 2.2.0: `data-tool-summary` `status` `corrected`. The emitter writes
+  one after every `RetryPromptPart`, the reason as its summary, so a call
+  handed back to the model reads apart from a call that failed. A tool that
+  refuses a call as a failed call, to spend no retry, raises `CallRefused`, and
+  `MarkRefusedCalls` carries the same summary on that call's result. The client reads an `output-error` call whose line says `corrected`
+  as a `corrected` row, and a call that answered never as one.
+
 ## 2026-10-09
 
 - A stalled job the sweep or a stop releases is failed and deleted in one call,

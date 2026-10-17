@@ -21,6 +21,7 @@ export type TraceRowStatus =
   | "empty"
   | "warn"
   | "error"
+  | "corrected"
   | "denied"
   | "awaiting-approval"
   | "stopped";
@@ -70,6 +71,7 @@ const STEP_STATUS: Record<SubAgentStepPayload["state"], TraceRowStatus> = {
   started: "running",
   completed: "ok",
   failed: "error",
+  corrected: "corrected",
   denied: "denied",
 };
 
@@ -111,12 +113,22 @@ function rowStatus(part: ToolPart): TraceRowStatus {
     case "approval-requested":
       return "awaiting-approval";
     case "output-error":
-      return "error";
+      return failedStatus(part.summaryStatus);
     case "output-denied":
       return "denied";
     case "output-available":
-      return part.summaryStatus ?? "ok";
+      return answeredStatus(part.summaryStatus);
   }
+}
+
+/** A failed call reads as corrected only when its line says it was handed back. */
+function failedStatus(status: ToolSummaryStatus | undefined): TraceRowStatus {
+  return status === "corrected" ? "corrected" : "error";
+}
+
+/** A call that answered keeps its own line's status; it was never handed back. */
+function answeredStatus(status: ToolSummaryStatus | undefined): TraceRowStatus {
+  return status === undefined || status === "corrected" ? "ok" : status;
 }
 
 function toolRow(part: ToolPart): TraceRow {
@@ -136,16 +148,16 @@ function stepRows(steps: readonly SubAgentStepPayload[]): TraceRow[] {
   const rows: TraceRow[] = [];
   for (const item of mergeSubAgentSteps(steps)) {
     if (item.type !== "tool") continue;
-    const failed = item.state === "failed";
+    const unanswered = item.state === "failed" || item.state === "corrected";
     rows.push({
       key: item.key,
       toolCallId: item.key,
       toolName: item.toolName,
-      summary: failed ? null : item.result,
+      summary: unanswered ? null : item.result,
       status: STEP_STATUS[item.state],
       input: item.args,
       output: item.output,
-      errorText: failed ? item.result : null,
+      errorText: unanswered ? item.result : null,
     });
   }
   return rows;
@@ -261,7 +273,8 @@ function applyLines(walk: Walk): void {
         const line = walk.lines.get(row.toolCallId);
         if (line === undefined) continue;
         row.summary = line.summary;
-        if (row.status === "ok") row.status = line.status;
+        if (row.status === "ok") row.status = answeredStatus(line.status);
+        if (row.status === "error") row.status = failedStatus(line.status);
       }
       trace.running ||= group.rows.some(
         (row) => row.status === "running" || row.status === "awaiting-approval",

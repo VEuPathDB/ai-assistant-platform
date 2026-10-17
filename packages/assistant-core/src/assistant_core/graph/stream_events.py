@@ -224,7 +224,7 @@ def turn_status_event(
     )
 
 
-ToolSummaryStatus = Literal["ok", "empty", "warn"]
+ToolSummaryStatus = Literal["ok", "empty", "warn", "corrected"]
 
 TOOL_SUMMARY_LIMIT = 120
 

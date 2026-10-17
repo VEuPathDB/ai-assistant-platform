@@ -94,7 +94,7 @@ class SubAgentStepPayload(CamelModel):
 
     parent_tool_call_id: str
     kind: Literal["tool", "reasoning", "text"]
-    state: Literal["started", "completed", "failed", "denied"]
+    state: Literal["started", "completed", "failed", "corrected", "denied"]
     tool_call_id: str | None = None
     tool_name: str | None = None
     args: dict[str, JsonValue] | None = None

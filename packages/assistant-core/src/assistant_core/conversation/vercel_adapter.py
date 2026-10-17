@@ -7,9 +7,11 @@ from typing import Any, Literal
 from langgraph.errors import GraphBubbleUp
 from pydantic_ai.exceptions import ContentFilterError
 from pydantic_ai.messages import (
+    FunctionToolResultEvent,
     PartDeltaEvent,
     PartEndEvent,
     PartStartEvent,
+    RetryPromptPart,
     TextPart,
     ThinkingPart,
 )
@@ -32,6 +34,7 @@ from pydantic_ai.ui.vercel_ai.response_types import (
 
 from assistant_core.errors import ModelDeclinedError
 from assistant_core.graph.stream_events import turn_withdrawn_event
+from assistant_core.graph.tool_summary import summary_chunks
 from assistant_core.platform.logging import get_logger
 
 logger = get_logger(__name__)
@@ -57,6 +60,8 @@ def declined_request(error: Exception) -> ModelDeclinedError | None:
         case _:
             return None
 
+
+_REFUSED_ARGUMENTS = "Sent with arguments the tool does not accept"
 
 _PHASE_STUB_INPUT: SubmitMessage = SubmitMessage(
     trigger="submit-message",
@@ -98,6 +103,22 @@ class PinnedVercelAIEventStream(VercelAIEventStream[Any, Any]):
             error_msg=str(error),
         )
         async for chunk in super().on_error(error):
+            yield chunk
+
+    async def handle_function_tool_result(
+        self,
+        event: FunctionToolResultEvent,
+    ) -> AsyncIterator[BaseChunk]:
+        async for chunk in super().handle_function_tool_result(event):
+            yield chunk
+        match event.part:
+            case RetryPromptPart(content=str() as said, tool_call_id=call_id):
+                pass
+            case RetryPromptPart(tool_call_id=call_id):
+                said = _REFUSED_ARGUMENTS
+            case _:
+                return
+        for chunk in summary_chunks(call_id, said, status="corrected"):
             yield chunk
 
     async def _withdraw(self, declined: ModelDeclinedError) -> AsyncIterator[BaseChunk]:

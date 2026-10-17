@@ -59,7 +59,7 @@ export interface DataPart {
 }
 
 /** How a tool's own one-line summary reads. Section 6.3. */
-export type ToolSummaryStatus = "ok" | "empty" | "warn";
+export type ToolSummaryStatus = "ok" | "empty" | "warn" | "corrected";
 
 /** What every state of a call shares, including the line the tool wrote. */
 export interface ToolPartIdentity {
