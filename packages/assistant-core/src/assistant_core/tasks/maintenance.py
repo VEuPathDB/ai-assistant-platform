@@ -17,7 +17,7 @@ from sqlalchemy import select
 
 from assistant_core.conversation.event_writer import ChatEventWriter
 from assistant_core.conversation.open_tool_calls import close_open_tool_calls
-from assistant_core.graph.stream_events import turn_failed_event
+from assistant_core.graph.stream_events import turn_failed_event, turn_stopped_event
 from assistant_core.persistence.models import ConversationEvent
 from assistant_core.platform.config import get_runtime_settings
 from assistant_core.platform.db import async_session_factory
@@ -120,6 +120,41 @@ async def release_dead_turn(conversation_id: UUID) -> None:
     for job in await _dead_workers_jobs():
         if job.task_name == CHAT_TURN_TASK and job.lock == str(conversation_id):
             await _release_job(job, _DEAD_WORKER)
+
+
+async def close_queued_turn(conversation_id: UUID, turn_id: UUID) -> bool:
+    jobs = await task_app().job_manager.list_jobs_async(
+        task=CHAT_TURN_TASK, lock=str(conversation_id), status=Status.TODO.value
+    )
+    cancelled = False
+    for job in jobs:
+        if job.id is None or _turn_of(job) != turn_id:
+            continue
+        cancelled = await task_app().job_manager.cancel_job_by_id_async(job.id)
+    if not cancelled:
+        return False
+    writer = ChatEventWriter(conversation_id=conversation_id, turn_id=turn_id)
+    for chunk in (
+        turn_stopped_event(),
+        FinishChunk(finish_reason="other"),
+        DoneChunk(),
+    ):
+        await writer.write(
+            chunk.model_dump(by_alias=True, mode="json", exclude_none=True),
+        )
+    logger.info(
+        "Closed a stopped turn no worker had started",
+        conversation_id=str(conversation_id),
+        turn_id=str(turn_id),
+    )
+    return True
+
+
+def _turn_of(job: Job) -> UUID | None:
+    try:
+        return ChatTurnJobArgs.model_validate(job.task_kwargs).payload.turn_id
+    except ValidationError:
+        return None
 
 
 async def _release_job(job: Job, reason: _StalledReason) -> None:

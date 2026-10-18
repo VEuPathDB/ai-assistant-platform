@@ -21,7 +21,7 @@ from assistant_core.persistence.repositories.chat_turn_cancellations import (
 )
 from assistant_core.persistence.repositories.conversation import ConversationRepository
 from assistant_core.platform.db import async_session_factory
-from assistant_core.tasks.maintenance import release_dead_turn
+from assistant_core.tasks.maintenance import close_queued_turn, release_dead_turn
 
 STOP_POLL_INTERVAL_SECONDS = 0.05
 STOP_WAIT_TIMEOUT_SECONDS = 30.0
@@ -84,6 +84,7 @@ async def stop_turns_and_wait(
     for conversation_id, turn_id in open_turns.items():
         await repo.request_cancel(conversation_id=conversation_id, turn_id=turn_id)
         await release_dead_turn(conversation_id)
+        await close_queued_turn(conversation_id, turn_id)
     pending = list(open_turns)
     deadline = time.monotonic() + timeout_seconds
     while pending and time.monotonic() < deadline:

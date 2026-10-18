@@ -2,6 +2,10 @@
 
 ## 2026-10-18
 
+- assistant-core 0.3.0b9: `stop_turns_and_wait` cancels the chat job of a turn no worker
+  has started (`close_queued_turn`, `tasks/maintenance.py`) and closes that turn as a
+  stopped one (`data-turn-stopped`, `finish` with `other`, `done`), so a new message waits
+  only for a turn a worker runs. A job a worker holds is left to its worker.
 - Protocol 2.2.1: a turn suspended on an approval closes with `finishReason:
   "other"`, and a `start` that names the open message continues it from the
   cursor before its first `start`. `open_message_of` keeps that cursor, so a
