@@ -61,14 +61,18 @@ class _LogChunk(CamelModel):
 def open_message_of(entries: Sequence[tuple[int, Chunk]]) -> OpenMessageRef | None:
     """The message the log leaves open, and the cursor before its ``start``.
 
-    A ``finish`` closes its message unless the turn suspended on a task.
+    A ``finish`` closes its message unless the turn suspended. A ``start`` that
+    names the open message continues it from its first cursor.
     """
     open_message: OpenMessageRef | None = None
     previous = 0
     for cursor, chunk in entries:
         parsed = _LogChunk.model_validate(chunk)
         if parsed.type == "start" and parsed.message_id is not None:
-            open_message = OpenMessageRef(message_id=parsed.message_id, after=previous)
+            if open_message is None or open_message.message_id != parsed.message_id:
+                open_message = OpenMessageRef(
+                    message_id=parsed.message_id, after=previous
+                )
         elif parsed.type == "finish" and parsed.finish_reason != SUSPENDED_TURN_REASON:
             open_message = None
         previous = cursor

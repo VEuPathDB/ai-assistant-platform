@@ -51,3 +51,16 @@ reconciliation would collapse two copies if it did. It was rejected because
 nothing re-sends it: the frame reaches the client exactly once, and the second
 part is a copy the reader made. An `id` would also be a protocol change made to
 work around a reader, which is what section 9 now states instead.
+
+# Why an approval suspends the message instead of closing it
+
+A turn that ends on an approval card is continued by the next turn under the
+same `messageId` (PROTOCOL 6.2), because the SDK patches the waiting tool part in
+the message that holds it. Closing that turn with `stop` made the client drop the
+open message, so the continuation's `start` opened it again at a later cursor,
+and a resume rebuilt it from there without the parts written before the card.
+PROTOCOL 2.2.1 closes such a turn with `other`, and a `start` that names the open
+message continues it from the cursor before its first `start`, on the client and
+in the snapshot's `openMessage`. A client that remembers a closed message's
+cursor was rejected: a snapshot names no message once it is closed, so a client
+that reloads while a card waits would have nothing to remember.

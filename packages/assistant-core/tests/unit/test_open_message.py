@@ -77,3 +77,17 @@ def test_the_reference_carries_the_two_fields_a_tail_needs() -> None:
         "messageId": SUSPENDED,
         "after": 41,
     }
+
+
+def test_a_start_that_continues_the_open_message_keeps_its_first_cursor() -> None:
+    entries: list[tuple[int, dict[str, Any]]] = [
+        *_suspending_turn(41),
+        (50, {"type": "start", "messageId": SUSPENDED}),
+        (51, {"type": "text-start", "id": "t2"}),
+    ]
+
+    open_message = open_message_of(entries)
+
+    assert open_message is not None
+    assert open_message.message_id == SUSPENDED
+    assert open_message.after == 41

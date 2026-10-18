@@ -1,5 +1,12 @@
 # Log
 
+## 2026-10-18
+
+- Protocol 2.2.1: a turn suspended on an approval closes with `finishReason:
+  "other"`, and a `start` that names the open message continues it from the
+  cursor before its first `start`. `open_message_of` keeps that cursor, so a
+  snapshot's `openMessage` replays the message whole after an approval.
+
 ## 2026-10-17
 
 - Protocol 2.2.0: `data-tool-summary` `status` `corrected`. The emitter writes

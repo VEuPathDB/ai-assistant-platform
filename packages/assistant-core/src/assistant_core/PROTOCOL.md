@@ -1,6 +1,6 @@
 # The assistant runtime wire protocol
 
-**Version 2.2.0.** This document specifies the bytes a client exchanges with an
+**Version 2.2.1.** This document specifies the bytes a client exchanges with an
 assistant built on `assistant_core`. It is written so a consumer in any
 language can implement a client from this page alone, with no reference to the
 JavaScript SDK that inspired the chunk vocabulary. Section 14 records what each
@@ -97,11 +97,12 @@ advance its cursor on one.
   the client may already hold.
 
 A client that holds a message a turn left open SHOULD resume that message from
-its own `start` chunk: it names a cursor before that `start`, ignores every
+its own first `start` chunk: it names a cursor before that `start`, ignores every
 chunk the tail delivers before it, and rebuilds the message whole. A turn that
 ends with `finishReason` `stop` or `error` closes its message, and a client
-resumes such a thread after the turn's `done`. Section 6.1 is the reason the
-rule exists: the chunks a durable task writes after `done` belong to the
+resumes such a thread after the turn's `done`. A later `start` that names the
+open message continues it and moves no cursor, so the message rebuilds whole.
+Section 6.1 is the reason the rule exists: the chunks a durable task writes after `done` belong to the
 message that started the task, and a reader that meets them without that
 message's `start` cannot place them.
 
@@ -223,7 +224,7 @@ as the only reliable turn boundary.
 | --- | --- |
 | `stop` | The turn ran to completion. |
 | `error` | The turn's driver raised. |
-| `other` | The turn was stopped by the user, or suspended on a durable task. |
+| `other` | The turn was stopped by the user, or suspended on a durable task or on an approval. |
 
 An `error` chunk does not end a turn: the runtime converts a failure inside the
 agent's stream into an `error` chunk, continues, and still closes the turn with
@@ -347,7 +348,9 @@ NOT expect the next `start` to follow it.
 An assistant MAY mark a tool as one the user must approve. The call is
 announced and then stops: the turn carries `tool-input-start`,
 `tool-input-available` and `tool-approval-request` for that `toolCallId`, and
-closes with `finish` and `done`. The tool has not run.
+closes with `finish` (`finishReason: "other"`) and `done`. The tool has not
+run, and the message stays open: the next turn names it in its `start` and
+continues it.
 
 The thread now holds the suspended call. The next turn carries the user's
 answer, in the body section 12.3 defines, and re-enters the same call: it
@@ -877,6 +880,7 @@ data: {"type":"done","reason":"completed"}
 
 | Version | What it added |
 | --- | --- |
+| `2.2.1` | A turn suspended on an approval closes with `finishReason: "other"` (sections 6 and 6.2), and a `start` that names the open message continues it from the cursor before its first `start` (section 4). Before this the turn closed with `stop`, the next turn reopened the same message, and a client that resumed it rebuilt it from the later `start` and dropped every part written before the approval. |
 | `2.2.0` | `data-tool-summary` `status` `corrected` (section 6.3): a call handed back to the model to send again is marked apart from a call that failed. Before this both reached the client as `output-error` with nothing between them, so every refusal the model recovered from read as a failure. |
 | `2.1.0` | `data-turn-withdrawn` (sections 5.2, 6, 9): a turn whose model declined the request withdraws the prompt that opened it, and a reader removes that prompt and shows the turn's notice alone; a turn that resumes a parked call withdraws its run and names no prompt. Before this a declined prompt stayed in the thread, every later turn sent it to the model again, and the model declined each of them. |
 | `2.0.1` | Section 4 states what a client does with a snapshot whose last chunk is a prompt envelope: it opens a tail from the snapshot's cursor, and falls back to the snapshot when that tail answers `204`. Before this the section named the resume rule for an open message alone, and a running turn's snapshot ends at its prompt and names no open message, so a client had no rule that told it to follow the turn and showed the prompt with nothing after it. |

@@ -182,6 +182,17 @@ describe("section 4, the message a resume replays", () => {
     expect(store.readOpenMessage("c1")).toEqual({ messageId: "m1", after: 0 });
   });
 
+  it("continues a message a later turn names, from the cursor before its first start", () => {
+    const store = memoryCursorStore();
+
+    record(store, "c1", frameText(1, START));
+    record(store, "c1", frameText(2, SUSPENDED));
+    record(store, "c1", frameText(3, DONE_PAYLOAD));
+    record(store, "c1", frameText(8, START));
+
+    expect(store.readOpenMessage("c1")).toEqual({ messageId: "m1", after: 0 });
+  });
+
   it("keeps threads apart", () => {
     const store = memoryCursorStore();
 
