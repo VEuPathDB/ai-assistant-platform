@@ -32,7 +32,7 @@ from pydantic_ai.ui.vercel_ai.response_types import (
 from assistant_core.capabilities.repetition_guard import ToolRepetitionGuard
 from assistant_core.conversation.event_writer import ChatEventWriter, ChatWriter
 from assistant_core.graph.runtime import AssistantDeps, TurnContext
-from assistant_core.graph.single_agent import single_agent_graph
+from assistant_core.graph.single_agent import SingleAgent, single_agent_graph
 from assistant_core.graph.stream_events import (
     tool_summary_event,
     turn_status_event,
@@ -288,8 +288,10 @@ def synthetic_graph(
         checkpointer=checkpointer,
         state_type=TurnState,
         context_type=SyntheticTurnContext,
-        build_agent=lambda: synthetic_agent(toolsets),
-        build_deps=_deps,
+        agent=SingleAgent(
+            build_agent=lambda: synthetic_agent(toolsets),
+            build_deps=_deps,
+        ),
         charge_usage=ledger,
     )
 

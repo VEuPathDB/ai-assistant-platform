@@ -7,6 +7,7 @@ from pydantic_ai.messages import (
     ModelResponse,
     TextPart,
     ToolCallPart,
+    ToolReturnPart,
     UserPromptPart,
 )
 
@@ -55,3 +56,38 @@ def test_an_incomplete_trailing_answer_survives_the_trim() -> None:
     ]
 
     assert settled_history(messages) == messages
+
+
+def _calls(*call_ids: str) -> ModelResponse:
+    return ModelResponse(
+        parts=[
+            ToolCallPart(tool_name="final_result", tool_call_id=call_id)
+            for call_id in call_ids
+        ],
+    )
+
+
+def _returned(*call_ids: str) -> ModelRequest:
+    return ModelRequest(
+        parts=[
+            ToolReturnPart(
+                tool_name="final_result",
+                content="Final result processed.",
+                tool_call_id=call_id,
+            )
+            for call_id in call_ids
+        ],
+    )
+
+
+def test_a_call_whose_result_follows_it_ends_an_exchange() -> None:
+    messages = [_prompt("hello"), _calls("c1"), _returned("c1")]
+
+    assert settled_history(messages) == messages
+
+
+def test_a_call_left_without_a_result_is_trimmed() -> None:
+    settled = [_prompt("hello"), _answer("hi")]
+    messages = [*settled, _prompt("count"), _calls("c1", "c2"), _returned("c1")]
+
+    assert settled_history(messages) == settled

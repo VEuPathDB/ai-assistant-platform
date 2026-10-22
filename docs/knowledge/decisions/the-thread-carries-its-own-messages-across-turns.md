@@ -4,7 +4,7 @@ title: A one-agent turn runs over the thread's own messages, carried on the chec
 description: TurnState.thread_messages_json holds the thread's pydantic-ai messages, written by the agent node from the run's own result and trimmed to the last complete exchange; the one-agent graph reads it as message_history. Rebuilding the history from the durable chunk log, and a runtime window or summarizer over it, were both rejected.
 tags: [assistant-core, graph, conversations, checkpointing]
 generated: { by: claude-code/opus-5, at: 2026-08-27T00:00:00Z }
-verified: { by: claude-code/opus-5, at: 2026-09-08T00:00:00Z }
+verified: { by: claude-code/opus-5-5, at: 2026-10-22T00:00:00Z }
 status: stable
 ---
 
@@ -20,9 +20,10 @@ serves both. The field is a `str`, so the checkpoint allowlist that every
 assistant shares needs no new type.
 
 The thread carries whole exchanges: `settled_history` drops trailing messages
-until the last one is a `ModelResponse` that pydantic-ai accepts a new prompt
-over, which means no tool calls and a state other than `suspended` - the two
-tails `UserPromptNode` refuses. A run that stops on
+until the tail is one that pydantic-ai accepts a new prompt over. That is a
+`ModelResponse` with no tool calls and a state other than `suspended` - the two
+tails `UserPromptNode` refuses - or a request that returns every call of the
+response before it, which is how a run with a typed reply ends. A run that stops on
 an approval therefore leaves the parked call out of the thread, because
 pydantic-ai refuses a new prompt over a history that holds an unprocessed call
 (`_agent_graph.UserPromptNode`), and the card's own resume history holds that

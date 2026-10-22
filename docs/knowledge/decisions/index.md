@@ -15,6 +15,7 @@ Choices made deliberately, each naming the alternative that was rejected and why
 
 - [The checkpoint allowlist binds at construction](the-checkpoint-allowlist-binds-at-construction.md) - the allowlist is the argument the serializer is built with, so every decode enforces it
 - [The thread carries its own messages across turns](the-thread-carries-its-own-messages-across-turns.md) - a one-agent turn runs over the checkpointed thread history, bounded by nobody
+- [A one-agent reply can be typed, and its turn can be bounded](a-one-agent-reply-can-be-typed-and-its-turn-bounded.md) - a typed reply runs as the output type and reaches the client only as the text the host renders, and a run stopped at a usage limit ends on the emitter's error chunk
 - [A tool source's session belongs to the turn](a-tool-source-session-belongs-to-the-turn.md) - the turn's driver opens and closes every declared MCP session
 - [The admitted tool sources are installed by the host](admitted-tool-sources-are-installed-by-the-host.md) - admission is a value a host installs once, never a field parsed from the environment
 - [The tool-hint namespace is a value a deployment names](the-meta-namespace-is-a-value-a-deployment-names.md) - a server declares its typed part under `<namespace>/streamPart`, and the default names this organisation

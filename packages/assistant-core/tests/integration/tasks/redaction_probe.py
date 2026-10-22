@@ -29,7 +29,7 @@ from sqlalchemy import insert
 from tests._host_schema import HOST_USERS
 
 from assistant_core.graph.runtime import AssistantDeps, TurnContext
-from assistant_core.graph.single_agent import single_agent_graph
+from assistant_core.graph.single_agent import SingleAgent, single_agent_graph
 from assistant_core.graph.turn_state import TurnState
 from assistant_core.persistence.models import Conversation
 from assistant_core.persistence.repositories.background_tasks import (
@@ -184,8 +184,7 @@ def _probe_spec() -> AssistantSpec:
             checkpointer=checkpointer,
             state_type=TurnState,
             context_type=TurnContext,
-            build_agent=_build_agent,
-            build_deps=_deps,
+            agent=SingleAgent(build_agent=_build_agent, build_deps=_deps),
             charge_usage=_charge,
         ),
         build_initial_state=_initial_state,

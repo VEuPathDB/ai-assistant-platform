@@ -1,8 +1,8 @@
 """A turn graph for an assistant that is one agent.
 
-The agent answers the user directly: its text and its tool calls stream to the
-client as the turn's message, and the turn's tokens and cost land on the
-state. A tool the agent must ask about parks on the state until the user
+The agent answers the user directly: its text, or the text a typed reply
+renders, and its tool calls stream to the client as the turn's message, and the
+turn's tokens and cost land on the state. A tool the agent must ask about parks on the state until the user
 answers, and a durable tool parks there until the worker answers. The graph
 names no phase, no role and no other agent.
 """
@@ -27,7 +27,9 @@ from langgraph.config import get_stream_writer
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.runtime import Runtime
+from pydantic import BaseModel
 from pydantic_ai import Agent, AgentRunResultEvent
+from pydantic_ai.capabilities import AbstractCapability
 from pydantic_ai.messages import (
     AgentStreamEvent,
     FunctionToolResultEvent,
@@ -35,8 +37,26 @@ from pydantic_ai.messages import (
     PartStartEvent,
     UserContent,
 )
-from pydantic_ai.tools import DeferredToolRequests, DeferredToolResults
-from pydantic_ai.usage import RunUsage
+from pydantic_ai.tools import (
+    DeferredToolRequests,
+    DeferredToolResults,
+    RunContext,
+    ToolDefinition,
+)
+from pydantic_ai.ui.vercel_ai.response_types import (
+    BaseChunk,
+    TextDeltaChunk,
+    TextEndChunk,
+    TextStartChunk,
+    ToolInputAvailableChunk,
+    ToolInputDeltaChunk,
+    ToolInputErrorChunk,
+    ToolInputStartChunk,
+    ToolOutputAvailableChunk,
+    ToolOutputDeniedChunk,
+    ToolOutputErrorChunk,
+)
+from pydantic_ai.usage import RunUsage, UsageLimits
 
 from assistant_core.capabilities.repetition_guard import RepetitionGuard
 from assistant_core.conversation.vercel_adapter import (
@@ -73,7 +93,59 @@ _FINALIZE_NODE = "finalize_turn"
 # Records one turn's tokens and cost against the user's budget.
 type UsageCharger = Callable[[UUID, int, Decimal], Awaitable[None]]
 
-type _RunEvent = AgentStreamEvent | AgentRunResultEvent[str | DeferredToolRequests]
+type _RunEvent = AgentStreamEvent | AgentRunResultEvent[Any]
+
+_TOOL_CALL_CHUNKS = (
+    ToolInputStartChunk,
+    ToolInputDeltaChunk,
+    ToolInputAvailableChunk,
+    ToolInputErrorChunk,
+    ToolOutputAvailableChunk,
+    ToolOutputErrorChunk,
+    ToolOutputDeniedChunk,
+)
+
+_TEXT_CHUNKS = (TextStartChunk, TextDeltaChunk, TextEndChunk)
+
+
+@dataclass(frozen=True, kw_only=True)
+class TypedReply[DepsT, ReplyT: BaseModel]:
+    output_type: type[ReplyT]
+    text: Callable[[ReplyT, DepsT], str]
+
+
+@dataclass(frozen=True, kw_only=True)
+class SingleAgent[StateT: TurnState, ContextT: TurnContext, DepsT: GuardedDeps]:
+    build_agent: TurnAgentFactory[Agent[DepsT, Any]]
+    build_deps: Callable[[StateT, ContextT], DepsT]
+    usage_limits: UsageLimits | None = None
+    reply: TypedReply[DepsT, Any] | None = None
+
+
+@dataclass
+class _ReplyFilter(AbstractCapability[Any]):
+    tool_names: set[str] = field(default_factory=set)
+    call_ids: set[str] = field(default_factory=set)
+
+    async def prepare_output_tools(
+        self,
+        ctx: RunContext[Any],
+        tool_defs: list[ToolDefinition],
+    ) -> list[ToolDefinition]:
+        self.tool_names.update(tool_def.name for tool_def in tool_defs)
+        return tool_defs
+
+    def holds(self, chunk: BaseChunk) -> bool:
+        if isinstance(chunk, _TEXT_CHUNKS):
+            return True
+        if not isinstance(chunk, _TOOL_CALL_CHUNKS):
+            return False
+        if (
+            isinstance(chunk, ToolInputStartChunk)
+            and chunk.tool_name in self.tool_names
+        ):
+            self.call_ids.add(chunk.tool_call_id)
+        return chunk.tool_call_id in self.call_ids
 
 
 @dataclass
@@ -140,7 +212,7 @@ def _turn_for(state: TurnState) -> _AgentTurn:
 
 
 def _absorb(
-    event: AgentRunResultEvent[str | DeferredToolRequests],
+    event: AgentRunResultEvent[Any],
     capture: _RunCapture,
     deferrals: dict[str, DurableDeferral],
 ) -> None:
@@ -191,11 +263,18 @@ def _advanced_history(state: TurnState, capture: _RunCapture) -> str:
     return dump_thread_history(capture.messages)
 
 
+@dataclass(frozen=True, kw_only=True)
+class _Answer[DepsT: GuardedDeps]:
+    agent: Agent[DepsT, Any]
+    deps: DepsT
+    turn: _AgentTurn
+    usage_limits: UsageLimits | None
+    reply: TypedReply[DepsT, Any] | None
+
+
 async def _stream_answer[DepsT: GuardedDeps](
+    answer: _Answer[DepsT],
     *,
-    agent: Agent[DepsT, str],
-    deps: DepsT,
-    turn: _AgentTurn,
     cancel: asyncio.Event,
     capture: _RunCapture,
     writer: Any,
@@ -207,23 +286,34 @@ async def _stream_answer[DepsT: GuardedDeps](
     its outcome. A run the repetition guard stopped ends the same way, once
     the refusal has reached the client.
     """
+    turn = answer.turn
+    deps = answer.deps
+    reply = answer.reply
     emitter = PhaseStreamEmitter(
         message_id=str(uuid4()),
         deferred_hints=list(turn.hints),
         prompt_message_id=turn.prompt_message_id,
     )
     guard = deps.tool_repetition_guard
+    reply_filter = None if reply is None else _ReplyFilter()
+    capabilities: list[AbstractCapability[Any]] = [RepetitionGuard(guard=guard)]
+    if reply_filter is not None:
+        capabilities.append(reply_filter)
 
     async def _events() -> AsyncGenerator[_RunEvent]:
         events: AsyncIterator[_RunEvent]
         event: _RunEvent
-        async with agent.run_stream_events(
+        async with answer.agent.run_stream_events(
             turn.prompt,
             deps=deps,
             message_history=turn.history,
             deferred_tool_results=turn.results,
-            output_type=[str, DeferredToolRequests],
-            capabilities=[RepetitionGuard(guard=guard)],
+            output_type=[
+                str if reply is None else reply.output_type,
+                DeferredToolRequests,
+            ],
+            capabilities=capabilities,
+            usage_limits=answer.usage_limits,
             usage=capture.usage,
         ) as events:
             async for event in events:
@@ -231,6 +321,7 @@ async def _stream_answer[DepsT: GuardedDeps](
                     return
                 if isinstance(event, AgentRunResultEvent):
                     _absorb(event, capture, deps.durable_deferrals)
+                    _write_typed_reply(writer, reply, event, deps)
                 yield event
                 if (
                     isinstance(event, FunctionToolResultEvent)
@@ -239,7 +330,23 @@ async def _stream_answer[DepsT: GuardedDeps](
                     return
 
     async for chunk in emitter.chunks(_events()):
-        emit_chunk(writer, chunk)
+        if reply_filter is None or not reply_filter.holds(chunk):
+            emit_chunk(writer, chunk)
+
+
+def _write_typed_reply[DepsT](
+    writer: Any,
+    reply: TypedReply[DepsT, Any] | None,
+    event: AgentRunResultEvent[Any],
+    deps: DepsT,
+) -> None:
+    output = event.result.output
+    if reply is None or isinstance(output, DeferredToolRequests):
+        return
+    text_id = str(uuid4())
+    emit_chunk(writer, TextStartChunk(id=text_id))
+    emit_chunk(writer, TextDeltaChunk(id=text_id, delta=reply.text(output, deps)))
+    emit_chunk(writer, TextEndChunk(id=text_id))
 
 
 def single_agent_graph[
@@ -251,8 +358,7 @@ def single_agent_graph[
     checkpointer: BaseCheckpointSaver[Any],
     state_type: type[StateT],
     context_type: type[ContextT],
-    build_agent: TurnAgentFactory[Agent[DepsT, str]],
-    build_deps: Callable[[StateT, ContextT], DepsT],
+    agent: SingleAgent[StateT, ContextT, DepsT],
     charge_usage: UsageCharger,
 ) -> CompiledStateGraph[StateT, ContextT, StateT, StateT]:
     """Compile the turn graph for a one-agent assistant.
@@ -270,9 +376,13 @@ def single_agent_graph[
         capture = _RunCapture()
         emit_chunk(writer, turn_status_event(label="Thinking...", waiting_on_llm=True))
         await _stream_answer(
-            agent=build_agent(),
-            deps=build_deps(state, context),
-            turn=_turn_for(state),
+            _Answer(
+                agent=agent.build_agent(),
+                deps=agent.build_deps(state, context),
+                turn=_turn_for(state),
+                usage_limits=agent.usage_limits,
+                reply=agent.reply,
+            ),
             cancel=context.cancel_event,
             capture=capture,
             writer=writer,
@@ -306,4 +416,4 @@ def single_agent_graph[
     return graph.compile(checkpointer=checkpointer)
 
 
-__all__ = ["UsageCharger", "single_agent_graph"]
+__all__ = ["SingleAgent", "TypedReply", "UsageCharger", "single_agent_graph"]

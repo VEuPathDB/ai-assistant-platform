@@ -7,6 +7,7 @@ cost accounting, and the cancel check; it names no assistant.
 from __future__ import annotations
 
 import asyncio
+import json
 from collections.abc import AsyncIterator, Callable
 from dataclasses import dataclass, field
 from decimal import Decimal
@@ -15,7 +16,9 @@ from uuid import UUID, uuid4
 
 import pytest
 from langgraph.checkpoint.memory import InMemorySaver
-from pydantic_ai import Agent, Tool
+from pydantic import BaseModel
+from pydantic_ai import Agent, ModelRetry, Tool
+from pydantic_ai.capabilities import Hooks
 from pydantic_ai.exceptions import ContentFilterError
 from pydantic_ai.messages import (
     BinaryContent,
@@ -27,13 +30,21 @@ from pydantic_ai.messages import (
     ToolReturnPart,
     UserPromptPart,
 )
+from pydantic_ai.models import ModelRequestContext
 from pydantic_ai.models.function import AgentInfo, DeltaToolCall, FunctionModel
+from pydantic_ai.output import OutputContext
+from pydantic_ai.tools import RunContext
 from pydantic_ai.ui.vercel_ai.request_types import FileUIPart, ToolApprovalResponded
+from pydantic_ai.usage import UsageLimits
 
 from assistant_core.conversation.vercel_adapter import DECLINED_BY_THE_MODEL
 from assistant_core.graph import turn_message
 from assistant_core.graph.runtime import AssistantDeps, TurnContext
-from assistant_core.graph.single_agent import single_agent_graph
+from assistant_core.graph.single_agent import (
+    SingleAgent,
+    TypedReply,
+    single_agent_graph,
+)
 from assistant_core.graph.turn_state import TurnState
 from assistant_core.platform.db import async_session_factory
 from assistant_core.spec import TurnStart, turn_input
@@ -137,8 +148,10 @@ async def _run(
         checkpointer=InMemorySaver(),
         state_type=TurnState,
         context_type=TurnContext,
-        build_agent=lambda: _agent(model, tools or []),
-        build_deps=_deps,
+        agent=SingleAgent(
+            build_agent=lambda: _agent(model, tools or []),
+            build_deps=_deps,
+        ),
         charge_usage=charges or _Charges(),
     )
     conversation_id = uuid4()
@@ -181,8 +194,10 @@ def test_the_graph_is_the_agent_node_and_the_runtime_s_finalize() -> None:
         checkpointer=InMemorySaver(),
         state_type=TurnState,
         context_type=TurnContext,
-        build_agent=lambda: _agent(_text_model("hi"), []),
-        build_deps=_deps,
+        agent=SingleAgent(
+            build_agent=lambda: _agent(_text_model("hi"), []),
+            build_deps=_deps,
+        ),
         charge_usage=_Charges(),
     )
 
@@ -459,15 +474,23 @@ class _Thread:
         *,
         tools: list[ProbeTool] | None = None,
         cancel: asyncio.Event | None = None,
+        agent: Callable[[], ProbeAgent] | None = None,
+        usage_limits: UsageLimits | None = None,
+        reply: TypedReply[AssistantDeps, Any] | None = None,
     ) -> None:
         self.context = _context(cancel or asyncio.Event())
+        self.charges = _Charges()
         self.graph = single_agent_graph(
             checkpointer=InMemorySaver(),
             state_type=TurnState,
             context_type=TurnContext,
-            build_agent=lambda: _agent(model, tools or []),
-            build_deps=_deps,
-            charge_usage=_Charges(),
+            agent=SingleAgent(
+                build_agent=agent or (lambda: _agent(model, tools or [])),
+                build_deps=_deps,
+                usage_limits=usage_limits,
+                reply=reply,
+            ),
+            charge_usage=self.charges,
         )
         self.conversation_id = uuid4()
         self.config: dict[str, Any] = {
@@ -507,6 +530,10 @@ class _Thread:
         ):
             chunks.append(payload["chunk"])
         return chunks
+
+    async def values(self) -> dict[str, Any]:
+        snapshot = await self.graph.aget_state(self.config)
+        return snapshot.values
 
 
 async def test_the_second_turn_answers_from_the_first_turn_s_messages() -> None:
@@ -766,3 +793,268 @@ async def test_a_resumed_turn_the_model_declined_withdraws_its_run_alone() -> No
         {"type": "data-turn-withdrawn", "data": {"errorText": DECLINED_BY_THE_MODEL}},
     ]
     assert _rendered(seen.runs[-1]) == f"{_FIRST_PROMPT} Noted. and now"
+
+
+_REFUSED_PROSE = "REFUSED-PROSE"
+_TYPED_PROSE = "two [x]"
+_LOOP_PROMPT = "keep reading pages"
+
+
+class _Reply(BaseModel):
+    prose: str
+
+
+_RENDERED = TypedReply[AssistantDeps, _Reply](
+    output_type=_Reply,
+    text=lambda reply, deps: reply.prose.replace("[x]", "facts"),
+)
+
+
+def _reply_model(seen: _Seen, proses: list[str]) -> FunctionModel:
+    async def _stream(
+        messages: list[ModelMessage],
+        info: AgentInfo,
+    ) -> AsyncIterator[str | dict[int, DeltaToolCall]]:
+        seen.runs.append(list(messages))
+        prose = proses[min(len(seen.runs), len(proses)) - 1]
+        yield {
+            0: DeltaToolCall(
+                name=info.output_tools[0].name,
+                json_args=json.dumps({"prose": prose}),
+                tool_call_id=f"reply-{len(seen.runs)}",
+            ),
+        }
+
+    return FunctionModel(stream_function=_stream, model_name="test:reply")
+
+
+def _capable_agent(
+    model: FunctionModel,
+    capabilities: list[Hooks[AssistantDeps]],
+    tools: list[ProbeTool] | None = None,
+) -> ProbeAgent:
+    return Agent(
+        model,
+        deps_type=AssistantDeps,
+        instructions="Answer.",
+        tools=list(tools or []),
+        capabilities=list(capabilities),
+        name="probe",
+    )
+
+
+def _refuse(prose: str, refused: list[str]) -> Hooks[AssistantDeps]:
+    hooks = Hooks[AssistantDeps]()
+
+    @hooks.on.after_output_validate
+    async def hold_the_reply(
+        ctx: RunContext[AssistantDeps],
+        /,
+        *,
+        output_context: OutputContext,
+        output: _Reply,
+    ) -> _Reply:
+        del ctx, output_context
+        if output.prose == prose:
+            refused.append(output.prose)
+            msg = "Write the reply again."
+            raise ModelRetry(msg)
+        return output
+
+    return hooks
+
+
+async def test_a_typed_reply_is_written_as_the_turns_text() -> None:
+    model = _reply_model(_Seen(), [_TYPED_PROSE])
+    thread = _Thread(model, agent=lambda: _capable_agent(model, []), reply=_RENDERED)
+
+    chunks = await thread.turn("how many facts")
+
+    assert _text(chunks) == "two facts"
+    assert [c["type"] for c in chunks if c["type"].startswith("tool-")] == []
+
+
+async def test_a_refused_reply_never_reaches_the_client() -> None:
+    seen = _Seen()
+    refused: list[str] = []
+    model = _reply_model(seen, [_REFUSED_PROSE, _TYPED_PROSE])
+    thread = _Thread(
+        model,
+        agent=lambda: _capable_agent(model, [_refuse(_REFUSED_PROSE, refused)]),
+        reply=_RENDERED,
+    )
+
+    chunks = await thread.turn("how many facts")
+
+    assert refused == [_REFUSED_PROSE]
+    assert len(seen.runs) == 2
+    assert _REFUSED_PROSE not in json.dumps(chunks)
+    assert _text(chunks) == "two facts"
+
+
+async def test_a_typed_reply_reaches_the_next_turn() -> None:
+    seen = _Seen()
+    model = _reply_model(seen, [_TYPED_PROSE])
+    thread = _Thread(model, agent=lambda: _capable_agent(model, []), reply=_RENDERED)
+
+    await thread.turn(_FIRST_PROMPT)
+    await thread.turn(_SECOND_PROMPT)
+
+    second = seen.runs[1]
+    assert _user_contents(second) == [_FIRST_PROMPT, _SECOND_PROMPT]
+    assert [call.tool_call_id for call in _calls(second)] == ["reply-1"]
+    assert [ret.tool_call_id for ret in _returns(second)] == ["reply-1"]
+
+
+def _looping_model(seen: _Seen) -> FunctionModel:
+    async def _stream(
+        messages: list[ModelMessage],
+        info: AgentInfo,
+    ) -> AsyncIterator[str | dict[int, DeltaToolCall]]:
+        del info
+        seen.runs.append(list(messages))
+        if _user_contents(messages)[-1] != _LOOP_PROMPT:
+            yield "Noted."
+            return
+        page = len(_calls(messages)) + 1
+        yield {
+            0: DeltaToolCall(
+                name="read_page",
+                json_args=json.dumps({"page": page}),
+                tool_call_id=f"page-{page}",
+            ),
+        }
+
+    return FunctionModel(stream_function=_stream, model_name="test:loop")
+
+
+async def read_page(page: int) -> str:
+    """Read one page."""
+    return f"page {page}"
+
+
+def _request_tokens(spent: list[int]) -> Hooks[AssistantDeps]:
+    hooks = Hooks[AssistantDeps]()
+
+    @hooks.on.after_model_request
+    async def count_tokens(
+        ctx: RunContext[AssistantDeps],
+        /,
+        *,
+        request_context: ModelRequestContext,
+        response: ModelResponse,
+    ) -> ModelResponse:
+        del ctx, request_context
+        spent.append(response.usage.total_tokens)
+        return response
+
+    return hooks
+
+
+async def test_a_turn_stops_at_its_usage_limit() -> None:
+    seen = _Seen()
+    spent: list[int] = []
+    model = _looping_model(seen)
+    thread = _Thread(
+        model,
+        agent=lambda: _capable_agent(model, [_request_tokens(spent)], [read_page]),
+        usage_limits=UsageLimits(request_limit=3),
+    )
+    await thread.turn(_FIRST_PROMPT)
+    before = (await thread.values())["thread_messages_json"]
+    seen.runs.clear()
+    spent.clear()
+
+    chunks = await thread.turn(_LOOP_PROMPT)
+
+    errors = [c for c in chunks if c["type"] == "error"]
+    assert len(errors) == 1
+    assert "request_limit of 3" in errors[0]["errorText"]
+    assert [c["type"] for c in chunks][-3:] == [
+        "error",
+        "finish-step",
+        "data-turn-usage",
+    ]
+    assert [c for c in chunks if c["type"] == "data-turn-failed"] == []
+    assert len(seen.runs) == 3
+    assert (await thread.values())["thread_messages_json"] == before
+    assert len(spent) == 3
+    assert thread.charges.calls[-1][1] == sum(spent)
+
+
+_PREAMBLE = "PREAMBLE-PROSE"
+
+
+def _talking_reply_model(seen: _Seen) -> FunctionModel:
+    async def _stream(
+        messages: list[ModelMessage],
+        info: AgentInfo,
+    ) -> AsyncIterator[str | dict[int, DeltaToolCall]]:
+        seen.runs.append(list(messages))
+        prose = _REFUSED_PROSE if len(seen.runs) == 1 else _TYPED_PROSE
+        yield f"{_PREAMBLE} {len(seen.runs)}"
+        yield {
+            1: DeltaToolCall(
+                name=info.output_tools[0].name,
+                json_args=json.dumps({"prose": prose}),
+                tool_call_id=f"reply-{len(seen.runs)}",
+            ),
+        }
+
+    return FunctionModel(stream_function=_stream, model_name="test:talking")
+
+
+async def test_a_typed_reply_turn_shows_only_the_accepted_reply() -> None:
+    seen = _Seen()
+    refused: list[str] = []
+    model = _talking_reply_model(seen)
+    thread = _Thread(
+        model,
+        agent=lambda: _capable_agent(model, [_refuse(_REFUSED_PROSE, refused)]),
+        reply=_RENDERED,
+    )
+
+    chunks = await thread.turn("how many facts")
+
+    written = json.dumps(chunks)
+    assert refused == [_REFUSED_PROSE]
+    assert len(seen.runs) == 2
+    assert _PREAMBLE not in written
+    assert _REFUSED_PROSE not in written
+    assert [c["delta"] for c in chunks if c["type"] == "text-delta"] == ["two facts"]
+
+
+def _talking_tool_model(seen: _Seen) -> FunctionModel:
+    async def _stream(
+        messages: list[ModelMessage],
+        info: AgentInfo,
+    ) -> AsyncIterator[str | dict[int, DeltaToolCall]]:
+        del info
+        seen.runs.append(list(messages))
+        if _returns(messages):
+            yield "Both pages say the same."
+            return
+        yield "Reading the page first."
+        yield {
+            1: DeltaToolCall(
+                name="read_page",
+                json_args=json.dumps({"page": 1}),
+                tool_call_id="page-1",
+            ),
+        }
+
+    return FunctionModel(stream_function=_stream, model_name="test:talking-tool")
+
+
+async def test_a_string_assistant_streams_its_text_around_its_tool_calls() -> None:
+    thread = _Thread(_talking_tool_model(_Seen()), tools=[read_page])
+
+    chunks = await thread.turn("read the page")
+
+    assert [c["delta"] for c in chunks if c["type"] == "text-delta"] == [
+        "Reading the page first.",
+        "Both pages say the same.",
+    ]
+    assert [c["toolName"] for c in chunks if c["type"] == "tool-input-start"] == [
+        "read_page",
+    ]

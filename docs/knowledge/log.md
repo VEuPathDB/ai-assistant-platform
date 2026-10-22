@@ -1,5 +1,18 @@
 # Log
 
+## 2026-10-22
+
+- assistant-core 0.3.0b10: `single_agent_graph` takes a `SingleAgent` (the agent
+  factory, the deps builder, optional `UsageLimits`, optional `TypedReply`). A
+  typed reply runs as the output type; the node drops every chunk of its output
+  tool, refused or accepted, and every text chunk the model streams, and writes
+  the text the host renders from the accepted reply. A
+  check on the reply is an `after_output_validate` hook. A run stopped at a
+  usage limit ends on the emitter's `error` chunk, keeps the thread history and
+  is charged what it spent. `settled_history` keeps a tail whose request returns
+  every call of the response before it. One decision is new: a one-agent reply
+  can be typed, and its turn can be bounded.
+
 ## 2026-10-18
 
 - assistant-core 0.3.0b9: `stop_turns_and_wait` cancels the chat job of a turn no worker

@@ -45,7 +45,7 @@ from assistant_core.conversation.checkpointer import (
 )
 from assistant_core.conversation.event_writer import ChatEventWriter, ChatWriter
 from assistant_core.graph.runtime import AssistantDeps, TurnContext
-from assistant_core.graph.single_agent import single_agent_graph
+from assistant_core.graph.single_agent import SingleAgent, single_agent_graph
 from assistant_core.graph.turn_state import DurableTaskResult, TurnState
 from assistant_core.models.scripted import (
     called_tool_parts,
@@ -441,8 +441,10 @@ def durable_spec(
             checkpointer=checkpointer,
             state_type=TurnState,
             context_type=TurnContext,
-            build_agent=lambda: _durable_agent(tools),
-            build_deps=_deps,
+            agent=SingleAgent(
+                build_agent=lambda: _durable_agent(tools),
+                build_deps=_deps,
+            ),
             charge_usage=ledger,
         )
 

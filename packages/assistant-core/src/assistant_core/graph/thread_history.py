@@ -11,7 +11,9 @@ from __future__ import annotations
 from pydantic_ai.messages import (
     ModelMessage,
     ModelMessagesTypeAdapter,
+    ModelRequest,
     ModelResponse,
+    ToolReturnPart,
 )
 
 
@@ -28,10 +30,26 @@ def _ends_an_exchange(message: ModelMessage) -> bool:
     )
 
 
+def _returns_every_call(response: ModelMessage, results: ModelMessage) -> bool:
+    if not isinstance(response, ModelResponse) or not isinstance(results, ModelRequest):
+        return False
+    returned = {
+        part.tool_call_id for part in results.parts if isinstance(part, ToolReturnPart)
+    }
+    called = {call.tool_call_id for call in response.tool_calls}
+    return bool(called) and called <= returned
+
+
+def _settled(messages: list[ModelMessage]) -> bool:
+    return _ends_an_exchange(messages[-1]) or (
+        len(messages) > 1 and _returns_every_call(messages[-2], messages[-1])
+    )
+
+
 def settled_history(messages: list[ModelMessage]) -> list[ModelMessage]:
     """``messages`` up to the last answer that left no call outstanding."""
     kept = list(messages)
-    while kept and not _ends_an_exchange(kept[-1]):
+    while kept and not _settled(kept):
         kept.pop()
     return kept
 
