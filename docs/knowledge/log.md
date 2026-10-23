@@ -1,5 +1,15 @@
 # Log
 
+## 2026-10-23
+
+- assistant-core 0.3.0b11: every line the runner writes about a durable task
+  names it. `run_durable_task` binds `task_id`, `conversation_id`, `tool_name`
+  and the owner `mark_running` now returns (`RETURNING user_id`) around the
+  rest of the call, and `settle_unfinished_task` binds the same keys from its
+  row, so the `durable tool failed` line, the settle lines and the completion
+  turn carry them. The body's lines carry `site_id` from the turn context. The
+  completion turn's lines no longer pass `thread_id`.
+
 ## 2026-10-22
 
 - assistant-core 0.3.0b10: `single_agent_graph` takes a `SingleAgent` (the agent

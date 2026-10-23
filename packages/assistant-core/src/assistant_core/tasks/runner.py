@@ -10,12 +10,13 @@ sweep settles a task here too, when the worker that held it stopped.
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
-from contextlib import AbstractAsyncContextManager, nullcontext
+from contextlib import AbstractAsyncContextManager, AbstractContextManager, nullcontext
 from dataclasses import dataclass
 from typing import Any, Literal
 from uuid import UUID
 
 import procrastinate
+import structlog
 from langgraph.store.postgres.aio import AsyncPostgresStore
 from pydantic import BaseModel
 
@@ -180,6 +181,23 @@ async def run_durable_task(
         )
 
 
+def _task_log_scope(
+    *,
+    task_id: UUID,
+    conversation_id: UUID,
+    tool_name: str,
+    user_id: UUID | None,
+) -> AbstractContextManager[None]:
+    named = {
+        "task_id": str(task_id),
+        "conversation_id": str(conversation_id),
+        "tool_name": tool_name,
+    }
+    if user_id is not None:
+        named["user_id"] = str(user_id)
+    return structlog.contextvars.bound_contextvars(**named)
+
+
 def _carried_scope(job_context: JSONObject) -> AbstractAsyncContextManager[None]:
     """The host state a durable call captured, put back around what runs here."""
     carried = durable_job_context()
@@ -196,14 +214,38 @@ async def _run_durable_task_inner(
 ) -> None:
     task_uuid = UUID(task_id)
     chat_uuid = UUID(thread_id)
-    host_started = is_host_started(tool_name)
     repo = BackgroundTaskRepository(session_factory=async_session_factory)
-    await repo.mark_running(task_id=task_uuid)
+    owner = await repo.mark_running(task_id=task_uuid)
+    with _task_log_scope(
+        task_id=task_uuid,
+        conversation_id=chat_uuid,
+        tool_name=tool_name,
+        user_id=owner,
+    ):
+        await _run_and_settle(
+            repo,
+            tool_name=tool_name,
+            task_uuid=task_uuid,
+            chat_uuid=chat_uuid,
+            args=args,
+            job_context=job_context,
+        )
 
+
+async def _run_and_settle(
+    repo: BackgroundTaskRepository,
+    *,
+    tool_name: str,
+    task_uuid: UUID,
+    chat_uuid: UUID,
+    args: dict[str, Any],
+    job_context: JSONObject,
+) -> None:
+    host_started = is_host_started(tool_name)
     impl = durable_impl(tool_name)
     if impl is None:
         error = f"unknown durable tool: {tool_name}"
-        logger.error("durable runner missing impl", tool_name=tool_name)
+        logger.error("durable runner missing impl")
         await _fail_task(
             repo,
             task_id=task_uuid,
@@ -238,7 +280,12 @@ async def _run_durable_task_inner(
             )
             async with attach_user_id(context.user_id):
                 try:
-                    with traced(_task_scope(tool_name, chat_uuid, task_uuid, context)):
+                    with (
+                        structlog.contextvars.bound_contextvars(
+                            site_id=context.site_id
+                        ),
+                        traced(_task_scope(tool_name, chat_uuid, task_uuid, context)),
+                    ):
                         payload = await impl(
                             context=context,
                             task_id=task_uuid,
@@ -250,7 +297,7 @@ async def _run_durable_task_inner(
                 finally:
                     await progress.aclose()
     except Exception as exc:  # the worker records every failure
-        logger.exception("durable tool failed", tool_name=tool_name)
+        logger.exception("durable tool failed")
         await _fail_task(
             repo,
             task_id=task_uuid,
@@ -269,7 +316,7 @@ async def _run_durable_task_inner(
     await _announce_completion(chat_uuid, task_uuid, "success", None)
     await _answer_and_settle(
         repo,
-        thread_id=thread_id,
+        thread_id=str(chat_uuid),
         result=DurableTaskResult(task_id=task_uuid, status="success", result=result),
         fallback=(task_uuid,),
         job_context=job_context,
@@ -309,7 +356,30 @@ async def settle_unfinished_task(
     row = await repo.get(task_id=task_id)
     if row is None:
         return
-    outcome = TaskOutcome.model_validate(row)
+    with _task_log_scope(
+        task_id=task_id,
+        conversation_id=conversation_id,
+        tool_name=row.tool_name,
+        user_id=row.user_id,
+    ):
+        await _settle_row(
+            repo,
+            outcome=TaskOutcome.model_validate(row),
+            conversation_id=conversation_id,
+            error=error,
+            job_context=job_context,
+        )
+
+
+async def _settle_row(
+    repo: BackgroundTaskRepository,
+    *,
+    outcome: TaskOutcome,
+    conversation_id: UUID,
+    error: str,
+    job_context: JSONObject,
+) -> None:
+    task_id = outcome.id
     if outcome.host_started:
         await _settle_host_task(repo, outcome=outcome, error=error)
         return

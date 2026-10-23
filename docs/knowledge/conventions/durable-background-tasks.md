@@ -212,6 +212,18 @@ so either order of the two calls leaves it on the line the process emits. A
 host that names its worker passes that name to `register_durable_jobs`,
 because procrastinate writes the job line on a logger named after the worker.
 
+**Every line the runner writes about a task names it.** `run_durable_task`
+binds `task_id`, `conversation_id`, `tool_name` and the owner that
+`mark_running` returns (`UPDATE ... RETURNING user_id`, so no read is added)
+as structlog context variables, and `settle_unfinished_task` binds the same
+keys from the row it reads. The body's lines, the `durable tool failed` line,
+the settle lines and the completion turn all carry them, and so does a
+standard-library line, because the stdlib bridge merges context variables.
+A task with no row runs all the same, and its lines name no owner. The body's
+lines also carry `site_id`, read from the turn context the host builds; the
+lines written before that context exists or after the body returns do not,
+because the row holds no site.
+
 # The chat-turn payload the sweep reads
 
 The host owns the `chat_turn:run` payload, and the sweep reads two fields out

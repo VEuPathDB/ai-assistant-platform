@@ -147,12 +147,16 @@ class BackgroundTaskRepository:
             outcomes = [TaskOutcome.model_validate(row) for row in rows]
         return {outcome.id: outcome for outcome in outcomes}
 
-    async def mark_running(self, *, task_id: UUID) -> None:
-        await self._set_values(
-            task_id,
-            status="running",
-            started_at=datetime.now(UTC),
-        )
+    async def mark_running(self, *, task_id: UUID) -> UUID | None:
+        async with self._session_factory() as session:
+            owner = await session.scalar(
+                update(BackgroundTask)
+                .where(BackgroundTask.id == task_id)
+                .values(status="running", started_at=datetime.now(UTC))
+                .returning(BackgroundTask.user_id)
+            )
+            await session.commit()
+        return owner
 
     async def mark_result_ready(self, *, task_id: UUID, result: dict[str, Any]) -> None:
         await self._set_values(

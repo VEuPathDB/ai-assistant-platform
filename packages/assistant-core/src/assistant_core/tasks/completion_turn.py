@@ -134,11 +134,7 @@ async def safe_completion_turn(
     try:
         return await _run_completion_turn(thread_id=thread_id, result=result)
     except Exception as exc:
-        logger.exception(
-            "durable completion turn failed",
-            thread_id=thread_id,
-            task_id=str(result.task_id),
-        )
+        logger.exception("durable completion turn failed")
         return CompletionOutcome(error=_turn_failure(exc))
 
 
@@ -222,7 +218,7 @@ async def _run_completion_turn(
     conversation_id = UUID(thread_id)
     assistant_id = await conversation_assistant_id(conversation_id)
     if assistant_id is None:
-        logger.info("no conversation to answer", thread_id=thread_id)
+        logger.info("no conversation to answer")
         return CompletionOutcome()
     spec = registry.resolve(assistant_id)
     async with (
@@ -238,25 +234,19 @@ async def _run_completion_turn(
         snapshot = await graph.aget_state(config)
         parked = _parked_durable_call(snapshot)
         if parked is None or not parked.owns(result.task_id):
-            logger.info(
-                "no parked durable call to answer",
-                thread_id=thread_id,
-                task_id=str(result.task_id),
-            )
+            logger.info("no parked durable call to answer")
             return CompletionOutcome()
         repo = BackgroundTaskRepository(session_factory=async_session_factory)
         answers = await _gathered_answers(repo, parked, result)
         if answers is None:
             logger.info(
                 "durable calls still running; the turn waits for the last one",
-                thread_id=thread_id,
-                task_id=str(result.task_id),
                 parked=len(parked.durable_calls),
             )
             return CompletionOutcome(waiting=True)
         user_id = await conversation_owner_id(conversation_id)
         if user_id is None:
-            logger.info("no owner to answer as", thread_id=thread_id)
+            logger.info("no owner to answer as")
             return CompletionOutcome()
         writer = ChatEventWriter(
             conversation_id=conversation_id,
@@ -284,11 +274,7 @@ async def _run_completion_turn(
                     ),
                 )
         except Exception as exc:  # every answered row still has to be closed
-            logger.exception(
-                "durable completion turn failed",
-                thread_id=thread_id,
-                task_id=str(result.task_id),
-            )
+            logger.exception("durable completion turn failed")
             return CompletionOutcome(answered=delivered, error=_turn_failure(exc))
     return CompletionOutcome(answered=delivered)
 
