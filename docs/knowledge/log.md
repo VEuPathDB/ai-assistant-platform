@@ -1,5 +1,17 @@
 # Log
 
+## 2026-10-24
+
+- assistant-core 0.3.0b12: `langgraph-checkpoint-postgres` 3.1.2 -> 3.1.3, the
+  fix for CVE-2026-115883, and `langgraph-checkpoint` 4.2.0 -> 4.3.0, which 3.1.3
+  requires. `langgraph` stays at 1.2.11, which accepts 4.3.0. The store now
+  refuses a namespace label that is empty or holds a period on every read and
+  delete, not only on a write, so such a label raises `InvalidNamespaceError`
+  where it read nothing before. A checkpoint's pending writes return in
+  `(task_path, task_id, idx)` order. A value that the serializer cannot rebuild
+  from its constructor returns its stored payload instead of `None`; a pydantic
+  model keeps its own fallback. No code in this package changes.
+
 ## 2026-10-23
 
 - assistant-core 0.3.0b11: every line the runner writes about a durable task
