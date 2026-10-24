@@ -28,6 +28,10 @@ class RuntimeSettings(BaseSettings):
     database_url: str = Field(default="", repr=False)
     api_debug: bool = False
 
+    db_pool_size: int = Field(default=2, ge=0)
+    db_max_overflow: int = Field(default=10, ge=0)
+    db_pool_timeout_seconds: float = Field(default=30.0, gt=0)
+
     # Seconds of silence after which a stream sends a comment frame.
     sse_keepalive_seconds: int = Field(default=15, ge=1)
 

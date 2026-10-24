@@ -6,7 +6,6 @@ from collections.abc import AsyncGenerator, AsyncIterator
 from typing import Annotated, Any, Literal
 from uuid import UUID
 
-import asyncpg
 from pydantic import BaseModel, Discriminator, Tag, TypeAdapter, ValidationError
 from pydantic_ai.ui.vercel_ai.response_types import (
     AbortChunk,
@@ -40,6 +39,7 @@ from pydantic_ai.ui.vercel_ai.response_types import (
 from sqlalchemy import select
 from sqlalchemy.engine import make_url
 
+from assistant_core.conversation.listen_hub import listen_hub
 from assistant_core.conversation.ui_message_reducer import (
     OpenMessageRef,
     open_message_of,
@@ -321,20 +321,11 @@ async def replay_and_tail(
         last_sent = event_id
 
     channel = f"conversation_events:{conversation_id}"
-    queue: asyncio.Queue[int] = asyncio.Queue()
-
-    def on_notify(_conn: object, _pid: int, _channel: str, payload: str) -> None:
-        try:
-            queue.put_nowait(int(payload))
-        except ValueError:
-            logger.warning("pg_notify payload not an int", payload=payload)
-
-    dsn = _asyncpg_dsn(get_runtime_settings().database_url)
-    conn = await asyncpg.connect(dsn=dsn)
+    hub = listen_hub(_asyncpg_dsn(get_runtime_settings().database_url))
+    queue = await hub.subscribe(channel)
     try:
-        await conn.add_listener(channel, on_notify)
         # Sweep after LISTEN arms in case a row landed between the initial
-        # SELECT and add_listener.
+        # SELECT and the subscription.
         for event_id, chunk in await _fetch_after(conversation_id, last_sent):
             yield event_id, chunk
             last_sent = event_id
@@ -346,7 +337,7 @@ async def replay_and_tail(
         ):
             yield event_id, chunk
     finally:
-        await conn.close()
+        await hub.unsubscribe(channel, queue)
 
 
 async def _tail_or_idle(

@@ -6,6 +6,7 @@ from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from assistant_core.errors import MessageOwnedElsewhereError
 from assistant_core.persistence.models import Message
 from assistant_core.persistence.repositories._message_metadata import MessageMetadata
 
@@ -55,9 +56,16 @@ class MessagesRepository:
             .on_conflict_do_update(
                 index_elements=[Message.id],
                 set_={Message.metadata_: metadata},
+                where=Message.conversation_id == conversation_id,
             )
+            .returning(Message.id)
         )
-        await self.session.execute(stmt)
+        written = (await self.session.execute(stmt)).scalar_one_or_none()
+        if written is None:
+            raise MessageOwnedElsewhereError(
+                message_id=message_id,
+                conversation_id=conversation_id,
+            )
 
     async def list_messages_for_conversation(
         self, conversation_id: UUID
@@ -89,16 +97,3 @@ class MessagesRepository:
             total_tokens += usage.total_tokens
             total_cost += usage.cost_decimal()
         return total_tokens, total_cost
-
-    async def mark_turn_completed(self, message_id: UUID) -> None:
-        """Flag an assistant message as the completed row of its turn.
-
-        The autowrite path reads ``metadata.turnCompleted == true`` to count
-        successful turns without consulting the in-flight pipeline state.
-        """
-        message = await self.session.get(Message, message_id)
-        if message is None:
-            return
-        meta = MessageMetadata.model_validate(message.metadata_)
-        meta.turn_completed = True
-        message.metadata_ = meta.model_dump(by_alias=True, exclude_none=True)

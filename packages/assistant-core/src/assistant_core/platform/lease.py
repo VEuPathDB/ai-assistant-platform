@@ -6,6 +6,7 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncEngine
 
 from assistant_core.platform.db import get_engine
 
@@ -14,7 +15,11 @@ _RELEASE = text("SELECT pg_advisory_unlock(hashtextextended(:name, 0))")
 
 
 @asynccontextmanager
-async def advisory_lease(name: str) -> AsyncIterator[bool]:
+async def advisory_lease(
+    name: str,
+    *,
+    engine: AsyncEngine | None = None,
+) -> AsyncIterator[bool]:
     """Take a session-level lock of this name, and report whether it was free.
 
     The lock lives on the connection this holds open, so a process that stops
@@ -22,7 +27,7 @@ async def advisory_lease(name: str) -> AsyncIterator[bool]:
     is closed at once, because the hold is the connection and not the
     transaction.
     """
-    async with get_engine().connect() as connection:
+    async with (engine or get_engine()).connect() as connection:
         taken = bool(await connection.scalar(_TAKE, {"name": name}))
         await connection.commit()
         try:

@@ -33,6 +33,16 @@ class TurnStillRunningError(AssistantCoreError):
         self.conversation_id = conversation_id
 
 
+class MessageOwnedElsewhereError(AssistantCoreError):
+    def __init__(self, *, message_id: UUID, conversation_id: UUID) -> None:
+        super().__init__(
+            f"message {message_id} belongs to a conversation other than "
+            f"{conversation_id}"
+        )
+        self.message_id = message_id
+        self.conversation_id = conversation_id
+
+
 class ModelDeclinedError(Exception):
     def __init__(self, text: str, *, model_id: str | None = None) -> None:
         super().__init__(text)

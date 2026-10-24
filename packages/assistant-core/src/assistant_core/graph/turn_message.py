@@ -14,6 +14,7 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from assistant_core.conversation.event_stream import fetch_chunks_after
 from assistant_core.conversation.ui_message_reducer import reduce_chunks
+from assistant_core.errors import MessageOwnedElsewhereError
 from assistant_core.graph.runtime import TurnContext
 from assistant_core.graph.turn_state import TurnState
 from assistant_core.persistence.repositories._message_metadata import MessageMetadata
@@ -78,10 +79,20 @@ async def write_turn_message(
             )
             await session.commit()
         record_turn_tokens(state.turn_total_tokens)
-    except SQLAlchemyError:
+    except MessageOwnedElsewhereError as refused:
         logger.warning(
             "failed to write turn message",
             conversation_id=str(state.conversation_id),
+            message_id=str(refused.message_id),
+            error=type(refused).__name__,
+        )
+        return None
+    except SQLAlchemyError as failed:
+        logger.warning(
+            "failed to write turn message",
+            conversation_id=str(state.conversation_id),
+            message_id=str(state.turn_message_id),
+            error=type(failed).__name__,
         )
         return None
     return message_id

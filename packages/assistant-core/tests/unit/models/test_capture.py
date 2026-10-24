@@ -5,7 +5,9 @@ from itertools import count
 from pathlib import Path
 
 import pytest
+from pydantic import BaseModel, ConfigDict, Field
 from pydantic_ai import Agent
+from pydantic_ai.messages import ToolReturnPart
 from pydantic_ai.models.test import TestModel
 
 from assistant_core.capabilities.allowed_tools import AllowedTools
@@ -81,3 +83,47 @@ async def test_a_tool_choice_in_the_settings_is_captured(tmp_path: Path) -> None
     assert json.loads(request.read_text())["settings"]["tool_choice"] == {
         "function_tools": ["read"]
     }
+
+
+class _Reading(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    gene_count: int = Field(alias="geneCount")
+    record_type: str = Field(alias="recordType")
+
+
+@pytest.mark.asyncio
+async def test_a_captured_tool_return_has_the_keys_the_model_reads(
+    tmp_path: Path,
+) -> None:
+    cap = CapturingModel(
+        TestModel(call_tools=["read"]), run_dir=tmp_path, role="lead", seq=count(1)
+    )
+    agent = Agent(cap)
+
+    @agent.tool_plain
+    def read() -> _Reading:
+        """Read the strategy."""
+        return _Reading(gene_count=3, record_type="transcript")
+
+    result = await agent.run("go")
+
+    sent = [
+        part.model_response_object()
+        for message in result.all_messages()
+        for part in message.parts
+        if isinstance(part, ToolReturnPart)
+    ]
+    requests = [
+        json.loads(f.read_text())
+        for f in sorted((tmp_path / "llm").glob("*.json"))
+        if "request" in f.name
+    ]
+    captured = [
+        part["content"]
+        for message in requests[-1]["messages"]
+        for part in message["parts"]
+        if part["part_kind"] == "tool-return"
+    ]
+    assert sent == [{"geneCount": 3, "recordType": "transcript"}]
+    assert captured == sent

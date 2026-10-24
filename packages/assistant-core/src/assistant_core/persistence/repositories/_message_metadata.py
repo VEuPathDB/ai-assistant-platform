@@ -31,4 +31,3 @@ class MessageMetadata(BaseModel):
     site_id: str | None = Field(None, alias="siteId")
     mode: str | None = None
     usage: MessageUsage | None = None
-    turn_completed: bool | None = Field(None, alias="turnCompleted")

@@ -2,6 +2,31 @@
 
 ## 2026-10-24
 
+- assistant-core 0.3.0b13: `MessagesRepository.upsert_message` updates a row
+  only when the conversation it names owns that row. A message id that names a
+  row of another conversation leaves that row unchanged and raises
+  `MessageOwnedElsewhereError`, a new `AssistantCoreError`. `write_turn_message`
+  logs that refusal and returns `None`, as it does for a failed write, so the
+  turn ends normally; the warning names the `message_id` and the `error` type,
+  so a refusal reads apart from a database failure. A host that copies a thread
+  keeps its writes inside the copy. `MessagesRepository.mark_turn_completed` is
+  removed: nothing called it, and it wrote a row by id alone. The
+  `MessageMetadata.turn_completed` field (`turnCompleted`) goes with it, since
+  nothing writes or reads it; an old row that carries the key still parses,
+  because the model allows extra keys. `CapturingModel`
+  dumps the messages by alias, so a captured tool return carries the keys the
+  model receives (pydantic-ai serializes a tool return by alias) instead of the
+  field names. The request pool is sized by `db_pool_size` (2),
+  `db_max_overflow` (10) and `db_pool_timeout_seconds` (30) on
+  `RuntimeSettings`, where it was 5 and 10 in code. Every chat stream of a
+  process listens on one shared connection (`conversation/listen_hub.py`),
+  where each stream opened its own; when that connection drops, the hub
+  listens again and wakes every stream to read what it missed, where a stream
+  waited for good. A channel is registered only once its LISTEN succeeded, the
+  hub connection asks the server for TCP keepalives (30 s idle, 10 s interval,
+  3 probes), and a host closes it with `close_listen_hub()` at shutdown.
+  `advisory_lease` takes an optional `engine`, so a host can hold its long
+  leases on a pool of their own.
 - assistant-core 0.3.0b12: `langgraph-checkpoint-postgres` 3.1.2 -> 3.1.3, the
   fix for CVE-2026-115883, and `langgraph-checkpoint` 4.2.0 -> 4.3.0, which 3.1.3
   requires. `langgraph` stays at 1.2.11, which accepts 4.3.0. The store now

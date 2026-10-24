@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+import os
+
+from sqlalchemy.ext.asyncio import create_async_engine
+
 from assistant_core.platform.lease import advisory_lease
 
 
@@ -43,3 +47,20 @@ async def test_a_refused_caller_does_not_release_the_holders_lock(
         async with advisory_lease("sweep") as third:
             assert third is False
         assert first is True
+
+
+async def test_a_lease_on_an_engine_of_its_own_holds_that_engines_connection(
+    patch_app_db_engine: None,
+) -> None:
+    del patch_app_db_engine
+    engine = create_async_engine(
+        os.environ["DATABASE_URL"], pool_size=1, max_overflow=0
+    )
+    try:
+        async with advisory_lease("audit", engine=engine) as held:
+            checked_out = engine.pool.checkedout()
+        after = engine.pool.checkedout()
+    finally:
+        await engine.dispose()
+
+    assert (held, checked_out, after) == (True, 1, 0)

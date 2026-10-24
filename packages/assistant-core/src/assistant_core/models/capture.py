@@ -66,7 +66,7 @@ def maybe_wrap_model(model: Model | str, role: str) -> Model | str:
 
 
 def _dump(messages: list[ModelMessage]) -> Any:
-    return json.loads(ModelMessagesTypeAdapter.dump_json(messages))
+    return json.loads(ModelMessagesTypeAdapter.dump_json(messages, by_alias=True))
 
 
 def _tool_defs(params: ModelRequestParameters) -> list[dict[str, Any]]:
