@@ -8,12 +8,14 @@ from langgraph.errors import GraphBubbleUp
 from pydantic_ai.exceptions import ContentFilterError
 from pydantic_ai.messages import (
     FunctionToolResultEvent,
+    OutputToolResultEvent,
     PartDeltaEvent,
     PartEndEvent,
     PartStartEvent,
     RetryPromptPart,
     TextPart,
     ThinkingPart,
+    ToolReturnPart,
 )
 from pydantic_ai.ui.vercel_ai._event_stream import VercelAIEventStream
 from pydantic_ai.ui.vercel_ai.request_types import SubmitMessage
@@ -63,6 +65,17 @@ def declined_request(error: Exception) -> ModelDeclinedError | None:
 
 _REFUSED_ARGUMENTS = "Sent with arguments the tool does not accept"
 
+
+def _corrected(part: ToolReturnPart | RetryPromptPart) -> list[BaseChunk]:
+    match part:
+        case RetryPromptPart(content=str() as said, tool_call_id=call_id):
+            return summary_chunks(call_id, said, status="corrected")
+        case RetryPromptPart(tool_call_id=call_id):
+            return summary_chunks(call_id, _REFUSED_ARGUMENTS, status="corrected")
+        case _:
+            return []
+
+
 _PHASE_STUB_INPUT: SubmitMessage = SubmitMessage(
     trigger="submit-message",
     id="phase",
@@ -111,14 +124,16 @@ class PinnedVercelAIEventStream(VercelAIEventStream[Any, Any]):
     ) -> AsyncIterator[BaseChunk]:
         async for chunk in super().handle_function_tool_result(event):
             yield chunk
-        match event.part:
-            case RetryPromptPart(content=str() as said, tool_call_id=call_id):
-                pass
-            case RetryPromptPart(tool_call_id=call_id):
-                said = _REFUSED_ARGUMENTS
-            case _:
-                return
-        for chunk in summary_chunks(call_id, said, status="corrected"):
+        for chunk in _corrected(event.part):
+            yield chunk
+
+    async def handle_output_tool_result(
+        self,
+        event: OutputToolResultEvent,
+    ) -> AsyncIterator[BaseChunk]:
+        async for chunk in super().handle_output_tool_result(event):
+            yield chunk
+        for chunk in _corrected(event.part):
             yield chunk
 
     async def _withdraw(self, declined: ModelDeclinedError) -> AsyncIterator[BaseChunk]:
