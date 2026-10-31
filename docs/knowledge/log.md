@@ -1,5 +1,17 @@
 # Log
 
+## 2026-10-31
+
+- Protocol 2.3.0: section 9 states the `approval` a reduced tool part carries.
+  The log holds no chunk for the user's answer, so both reducers read it from
+  the outcome: `{id, approved: true}` on `output-available` and `output-error`
+  of a call that asked, `{id, approved: false}` on `output-denied`, and none on
+  the re-entered `input-available`, which the SDK's `uiMessageSchema` types
+  without one. The client reducer dropped the approval from an approved call,
+  and the runtime's reducer kept `{id}` with no `approved` on every state. The
+  client's `ToolPart` types the field on the two outcome states, and
+  `toTraceParts` keeps it.
+
 ## 2026-10-24
 
 - assistant-core 0.3.0b13: `MessagesRepository.upsert_message` updates a row

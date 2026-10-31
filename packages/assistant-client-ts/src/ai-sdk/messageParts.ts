@@ -11,7 +11,7 @@ import {
   type ToolPart,
   type ToolSummaryStatus,
 } from "../core/message.ts";
-import { toolSummaryStatuses } from "../core/reduceTool.ts";
+import { approvedOf, toolSummaryStatuses } from "../core/reduceTool.ts";
 
 type UIPart = UIMessage["parts"][number];
 
@@ -55,6 +55,7 @@ function toolPart(part: ToolUIPart): ToolPart {
         state: "output-available",
         input: part.input,
         output: part.output,
+        ...approvedOf(part.approval?.id),
       };
     case "output-error":
       return {
@@ -62,6 +63,7 @@ function toolPart(part: ToolUIPart): ToolPart {
         state: "output-error",
         input: part.input,
         errorText: part.errorText,
+        ...approvedOf(part.approval?.id),
       };
     case "output-denied":
       return {

@@ -13,6 +13,7 @@ from assistant_core.conversation._chunk_state import (
     _is_tool_part,
     _merge_metadata,
     _PartialToolCall,
+    _settle_approval,
     _State,
     _tool_name_from_part,
     _ToolUpdate,
@@ -169,10 +170,11 @@ def _h_tool_input_delta(state: _State, chunk: Chunk) -> None:
 
 
 def _h_tool_input_available(state: _State, chunk: Chunk) -> None:
+    tool_call_id = str(chunk["toolCallId"])
     _upsert_tool_part(
         state,
         _ToolUpdate(
-            tool_call_id=str(chunk["toolCallId"]),
+            tool_call_id=tool_call_id,
             tool_name=str(chunk["toolName"]),
             state_value="input-available",
             dynamic=bool(chunk.get("dynamic", False)),
@@ -182,6 +184,7 @@ def _h_tool_input_available(state: _State, chunk: Chunk) -> None:
             title=chunk.get("title"),
         ),
     )
+    _settle_approval(state, tool_call_id, approved=None)
 
 
 def _h_tool_input_error(state: _State, chunk: Chunk) -> None:
@@ -221,7 +224,9 @@ def _h_tool_approval_request(state: _State, chunk: Chunk) -> None:
     if invocation is None:
         return
     invocation["state"] = "approval-requested"
-    invocation["approval"] = {"id": chunk.get("approvalId")}
+    approval_id = str(chunk["approvalId"])
+    invocation["approval"] = {"id": approval_id}
+    state.approval_ids[str(chunk["toolCallId"])] = approval_id
 
 
 def _h_tool_output_denied(state: _State, chunk: Chunk) -> None:
@@ -229,6 +234,7 @@ def _h_tool_output_denied(state: _State, chunk: Chunk) -> None:
     if invocation is None:
         return
     invocation["state"] = "output-denied"
+    _settle_approval(state, str(chunk["toolCallId"]), approved=False)
 
 
 def _h_tool_output_available(state: _State, chunk: Chunk) -> None:
@@ -251,6 +257,7 @@ def _h_tool_output_available(state: _State, chunk: Chunk) -> None:
             title=invocation.get("title"),
         ),
     )
+    _settle_approval(state, str(chunk["toolCallId"]), approved=True)
 
 
 def _h_tool_output_error(state: _State, chunk: Chunk) -> None:
@@ -273,6 +280,7 @@ def _h_tool_output_error(state: _State, chunk: Chunk) -> None:
             title=invocation.get("title"),
         ),
     )
+    _settle_approval(state, str(chunk["toolCallId"]), approved=True)
 
 
 def _h_start_step(state: _State, _chunk: Chunk) -> None:

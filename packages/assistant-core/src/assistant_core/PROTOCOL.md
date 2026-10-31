@@ -1,6 +1,6 @@
 # The assistant runtime wire protocol
 
-**Version 2.2.1.** This document specifies the bytes a client exchanges with an
+**Version 2.3.0.** This document specifies the bytes a client exchanges with an
 assistant built on `assistant_core`. It is written so a consumer in any
 language can implement a client from this page alone, with no reference to the
 JavaScript SDK that inspired the chunk vocabulary. Section 14 records what each
@@ -618,6 +618,13 @@ A client reduces a turn's chunks into one assistant message with an ordered
   `input-streaming` -> `input-available` -> (`approval-requested`) ->
   `output-available` | `output-error` | `output-denied`. A later chunk for a
   call already in the array patches that part; it never appends a second one.
+- `tool-approval-request` sets the part's `approval` to `{id}`, the chunk's
+  `approvalId`. No chunk records the user's answer, so the reducer reads it from
+  the outcome of section 6.2. The re-entered `tool-input-available` drops
+  `approval`, because a part in `input-available` carries none. An
+  `output-available` or `output-error` part of a call that asked sets it to
+  `{id, approved: true}`, and an `output-denied` part to
+  `{id, approved: false}`. A call that never asked carries no `approval`.
 - `data-tool-summary` addresses the tool part named by `data.toolCallId`. It
   sets that part's `summary` and `summaryStatus` and appends no part. A summary
   naming a call the client does not hold is ignored.
@@ -880,6 +887,7 @@ data: {"type":"done","reason":"completed"}
 
 | Version | What it added |
 | --- | --- |
+| `2.3.0` | Section 9 states the `approval` a reduced tool part carries: `{id, approved: true}` on the outcome of an approved call, `{id, approved: false}` on a refused one, and none on a re-entered call that is still running. Before this a reducer kept the approval on a refused call and dropped it from an approved one, so a thread rebuilt from the snapshot showed the refusal and no record of the approval. |
 | `2.2.1` | A turn suspended on an approval closes with `finishReason: "other"` (sections 6 and 6.2), and a `start` that names the open message continues it from the cursor before its first `start` (section 4). Before this the turn closed with `stop`, the next turn reopened the same message, and a client that resumed it rebuilt it from the later `start` and dropped every part written before the approval. |
 | `2.2.0` | `data-tool-summary` `status` `corrected` (section 6.3): a call handed back to the model to send again is marked apart from a call that failed. Before this both reached the client as `output-error` with nothing between them, so every refusal the model recovered from read as a failure. |
 | `2.1.0` | `data-turn-withdrawn` (sections 5.2, 6, 9): a turn whose model declined the request withdraws the prompt that opened it, and a reader removes that prompt and shows the turn's notice alone; a turn that resumes a parked call withdraws its run and names no prompt. Before this a declined prompt stayed in the thread, every later turn sent it to the model again, and the model declined each of them. |
