@@ -73,6 +73,46 @@ describe("the SDK's parts read as the protocol's", () => {
     ]);
   });
 
+  it("keeps the approval an approved call finished with", () => {
+    const parts: UIPart[] = [
+      {
+        type: "tool-clear_strategy",
+        toolCallId: "call_clear",
+        state: "output-available",
+        input: {},
+        output: "cleared",
+        approval: { id: "approval_clear", approved: true },
+      },
+      {
+        type: "tool-wipe",
+        toolCallId: "call_wipe",
+        state: "output-error",
+        input: {},
+        errorText: "boom",
+        approval: { id: "approval_wipe", approved: true },
+      },
+    ];
+
+    expect(toTraceParts(parts)).toEqual([
+      {
+        type: "tool-clear_strategy",
+        toolCallId: "call_clear",
+        state: "output-available",
+        input: {},
+        output: "cleared",
+        approval: { id: "approval_clear", approved: true },
+      },
+      {
+        type: "tool-wipe",
+        toolCallId: "call_wipe",
+        state: "output-error",
+        input: {},
+        errorText: "boom",
+        approval: { id: "approval_wipe", approved: true },
+      },
+    ]);
+  });
+
   it("keeps an open approval, with the id the answer names", () => {
     const parts: UIPart[] = [
       {

@@ -6,6 +6,7 @@ import {
   readValue,
 } from "./chunks.ts";
 import {
+  type Approved,
   type MessagePart,
   type ToolPart,
   type ToolPartIdentity,
@@ -58,6 +59,12 @@ function identity(track: ToolTrack, toolCallId: string): ToolPartIdentity {
   if (track.summary !== undefined) shared.summary = track.summary;
   if (track.summaryStatus !== undefined) shared.summaryStatus = track.summaryStatus;
   return shared;
+}
+
+export function approvedOf(approvalId: string | undefined): { approval?: Approved } {
+  return approvalId === undefined
+    ? {}
+    : { approval: { id: approvalId, approved: true } };
 }
 
 function openTrack(
@@ -149,6 +156,7 @@ function applyError(
     state: "output-error",
     input,
     errorText,
+    ...approvedOf(track.approvalId),
   });
 }
 
@@ -197,6 +205,7 @@ function dispatch(
         state: "output-available",
         input: held.input,
         output: readValue(chunk, "output"),
+        ...approvedOf(held.approvalId),
       });
       return;
     default:

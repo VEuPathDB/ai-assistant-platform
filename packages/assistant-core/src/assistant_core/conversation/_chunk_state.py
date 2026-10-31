@@ -22,6 +22,7 @@ class _State:
     active_text_parts: dict[str, Part] = field(default_factory=dict)
     active_reasoning_parts: dict[str, Part] = field(default_factory=dict)
     partial_tool_calls: dict[str, _PartialToolCall] = field(default_factory=dict)
+    approval_ids: dict[str, str] = field(default_factory=dict)
     finish_reason: str | None = None
 
 
@@ -86,6 +87,19 @@ def _get_tool_invocation(state: _State, tool_call_id: str) -> Part | None:
         if _is_tool_part(part) and part.get("toolCallId") == tool_call_id:
             return part
     return None
+
+
+def _settle_approval(
+    state: _State, tool_call_id: str, *, approved: bool | None
+) -> None:
+    part = _get_tool_invocation(state, tool_call_id)
+    approval_id = state.approval_ids.get(tool_call_id)
+    if part is None or approval_id is None:
+        return
+    if approved is None:
+        part.pop("approval", None)
+        return
+    part["approval"] = {"id": approval_id, "approved": approved}
 
 
 def _is_result_state(state_value: str) -> bool:

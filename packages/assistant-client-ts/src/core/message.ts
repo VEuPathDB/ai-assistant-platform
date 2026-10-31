@@ -69,6 +69,11 @@ export interface ToolPartIdentity {
   summaryStatus?: ToolSummaryStatus;
 }
 
+export interface Approved {
+  id: string;
+  approved: true;
+}
+
 /** The call's state, as section 9 walks it. */
 export type ToolPart = ToolPartIdentity &
   (
@@ -81,8 +86,20 @@ export type ToolPart = ToolPartIdentity &
         errorText?: never;
         approval: { id: string };
       }
-    | { state: "output-available"; input: unknown; output: unknown; errorText?: never }
-    | { state: "output-error"; input: unknown; output?: never; errorText: string }
+    | {
+        state: "output-available";
+        input: unknown;
+        output: unknown;
+        errorText?: never;
+        approval?: Approved;
+      }
+    | {
+        state: "output-error";
+        input: unknown;
+        output?: never;
+        errorText: string;
+        approval?: Approved;
+      }
     | {
         state: "output-denied";
         input: unknown;
