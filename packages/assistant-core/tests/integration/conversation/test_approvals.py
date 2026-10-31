@@ -54,7 +54,7 @@ async def test_the_suspended_turn_still_closes_with_finish_then_done(
 
     assert types.index("tool-approval-request") < types.index("finish")
     assert types[-2:] == ["finish", "done"]
-    assert logged[-2]["finishReason"] == "stop"
+    assert logged[-2]["finishReason"] == "other"
 
 
 async def test_the_thread_parks_the_call_the_user_must_answer(
@@ -106,6 +106,32 @@ async def test_the_approved_turn_answers_from_the_tool_it_finally_ran(
 
     deltas = [c["delta"] for c in resumed.chunks if c["type"] == "text-delta"]
     assert deltas == ["Result: wiped everything."]
+
+
+async def test_the_answering_turn_records_the_answer_before_it_re_enters_the_call(
+    runtime: SyntheticRuntime,
+) -> None:
+    await runtime.run(APPROVAL_PROMPT)
+    asked_cursor, _asked = await fetch_chunks_after(runtime.conversation_id, 0)
+
+    await runtime.answer_approval(APPROVAL_CALL_ID, approved=True)
+
+    _cursor, logged = await fetch_chunks_after(runtime.conversation_id, asked_cursor)
+    types = [c["type"] for c in logged]
+    recorded = types.index("data-tool-approval")
+    re_entered = types.index("tool-input-available")
+    assert types[0] == "start"
+    assert recorded < re_entered
+    assert "start-step" not in types[:re_entered]
+    assert logged[recorded] == {
+        "type": "data-tool-approval",
+        "id": APPROVAL_CALL_ID,
+        "data": {
+            "toolCallId": APPROVAL_CALL_ID,
+            "approvalId": APPROVAL_CALL_ID,
+            "approved": True,
+        },
+    }
 
 
 async def test_denying_the_call_reaches_the_client_as_a_denial(

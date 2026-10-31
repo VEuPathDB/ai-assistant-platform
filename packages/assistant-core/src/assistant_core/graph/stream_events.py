@@ -224,6 +224,32 @@ def turn_status_event(
     )
 
 
+class ToolApprovalPayload(CamelModel):
+    tool_call_id: str
+    approval_id: str
+    approved: bool
+    reason: str | None = None
+
+
+def tool_approval_event(
+    *,
+    tool_call_id: str,
+    approval_id: str,
+    approved: bool,
+    reason: str | None = None,
+) -> DataChunk:
+    return DataChunk(
+        type="data-tool-approval",
+        id=approval_id,
+        data=ToolApprovalPayload(
+            tool_call_id=tool_call_id,
+            approval_id=approval_id,
+            approved=approved,
+            reason=reason,
+        ).model_dump(by_alias=True, mode="json", exclude_none=True),
+    )
+
+
 ToolSummaryStatus = Literal["ok", "empty", "warn", "corrected"]
 
 TOOL_SUMMARY_LIMIT = 120

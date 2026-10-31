@@ -22,6 +22,7 @@ from pydantic_ai.ui.vercel_ai.request_types import ToolApprovalResponded
 from assistant_core.graph.approvals import (
     DENIED_WITHOUT_REASON,
     approval_answer,
+    approval_answer_events,
     approval_results,
     deferred_hint,
     parked_call,
@@ -187,3 +188,44 @@ def test_the_hint_re_announces_the_parked_call_without_sharing_its_args() -> Non
     assert hint.tool_call_id == "call_consult"
     assert hint.tool_name == "consult_user"
     assert parked.tool_args == {"questions": []}
+
+
+def test_an_answer_is_recorded_as_a_part_named_by_its_approval() -> None:
+    events = approval_answer_events(
+        {"call_wipe": ToolApprovalResponded(id="approval_wipe", approved=True)},
+    )
+
+    assert [e.model_dump(by_alias=True, exclude_none=True) for e in events] == [
+        {
+            "type": "data-tool-approval",
+            "id": "approval_wipe",
+            "data": {
+                "toolCallId": "call_wipe",
+                "approvalId": "approval_wipe",
+                "approved": True,
+            },
+        },
+    ]
+
+
+def test_a_refusal_is_recorded_with_the_reason_the_user_gave() -> None:
+    events = approval_answer_events(
+        {
+            "call_wipe": ToolApprovalResponded(
+                id="approval_wipe", approved=False, reason="not on my data"
+            ),
+        },
+    )
+
+    assert [e.data for e in events] == [
+        {
+            "toolCallId": "call_wipe",
+            "approvalId": "approval_wipe",
+            "approved": False,
+            "reason": "not on my data",
+        },
+    ]
+
+
+def test_a_turn_that_answers_nothing_records_nothing() -> None:
+    assert approval_answer_events({}) == []

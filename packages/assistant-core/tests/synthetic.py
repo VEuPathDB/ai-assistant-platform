@@ -31,6 +31,7 @@ from pydantic_ai.ui.vercel_ai.response_types import (
 
 from assistant_core.capabilities.repetition_guard import ToolRepetitionGuard
 from assistant_core.conversation.event_writer import ChatEventWriter, ChatWriter
+from assistant_core.graph.approvals import approval_answer_events
 from assistant_core.graph.runtime import AssistantDeps, TurnContext
 from assistant_core.graph.single_agent import SingleAgent, single_agent_graph
 from assistant_core.graph.stream_events import (
@@ -378,6 +379,9 @@ class TurnRequest:
     approval_responses: dict[str, ToolApprovalResponded] = field(default_factory=dict)
 
 
+_SUSPENDING = frozenset({"data-background-task-started", "tool-approval-request"})
+
+
 @dataclass
 class TurnOutcome:
     """What one driven turn produced."""
@@ -391,7 +395,8 @@ class TurnOutcome:
         return [str(chunk["type"]) for chunk in self.chunks]
 
     def finish_reason(self) -> str:
-        return "other" if self.cancelled else "stop"
+        suspended = not _SUSPENDING.isdisjoint(self.types())
+        return "other" if self.cancelled or suspended else "stop"
 
 
 def _turn_start(request: TurnRequest, start_event_id: int) -> TurnStart:
@@ -444,6 +449,8 @@ async def drive_turn(request: TurnRequest) -> TurnOutcome:
     await request.writer.write(
         dump_chunk(turn_status_event(label=PREPARING_LABEL)),
     )
+    for answer in approval_answer_events(request.approval_responses):
+        await request.writer.write(dump_chunk(answer))
     await _consume(request, outcome)
     outcome.cancelled = request.context.cancel_event.is_set()
 

@@ -15,6 +15,7 @@ from assistant_core.conversation.stream_parts.turn_usage import TurnUsage
 from assistant_core.graph.stream_events import (
     ConversationTitlePayload,
     ScratchpadUpdatedPayload,
+    ToolApprovalPayload,
     ToolSummaryPayload,
     TurnFailedPayload,
     TurnStatusPayload,
@@ -38,6 +39,7 @@ def register_core_stream_parts(registry: StreamPartRegistry) -> None:
     registry.register("data-turn-withdrawn", TurnWithdrawnPayload)
     registry.register("data-conversation-title", ConversationTitlePayload)
     registry.register("data-tool-summary", ToolSummaryPayload)
+    registry.register("data-tool-approval", ToolApprovalPayload)
     registry.register("data-scratchpad-updated", ScratchpadUpdatedPayload)
     registry.register_schema_only("consult_question", ConsultQuestion)
     registry.register_schema_only("user_question_answer", UserQuestionAnswer)
