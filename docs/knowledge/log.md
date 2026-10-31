@@ -2,6 +2,11 @@
 
 ## 2026-10-31
 
+- assistant-core 0.3.0b14 and assistant-client 0.3.0-beta.4. The offline
+  `FakeEmbedder` sums one seeded vector per word of a text, so texts that share
+  words lie close and a title finds the text that holds it. One text still gives
+  one vector, and the live embedder is unchanged. The copy in veupathdb-mcp
+  0.2.0b59 is the same code.
 - Protocol 2.3.0: section 9 states the `approval` a reduced tool part carries.
   The log holds no chunk for the user's answer, so both reducers read it from
   the outcome: `{id, approved: true}` on `output-available` and `output-error`

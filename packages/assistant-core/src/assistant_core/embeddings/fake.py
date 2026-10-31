@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import re
 from collections.abc import Sequence
 
 import numpy as np
@@ -10,10 +11,12 @@ import numpy as np
 from assistant_core.embeddings.embedder import EMBEDDING_DIMENSIONS
 
 _SEED_BYTES = 4
+_WORD = re.compile(r"\w+")
 
 
 class FakeEmbedder:
-    """Vectors seeded from the text, so one text always gives one vector."""
+    """Vectors summed from the words of the text, so one text always gives one
+    vector and texts that share words lie close."""
 
     def __init__(self) -> None:
         self.calls: list[list[str]] = []
@@ -27,8 +30,13 @@ class FakeEmbedder:
         return _vector(text)
 
 
-def _vector(text: str) -> list[float]:
-    digest = hashlib.sha256(text.encode()).digest()
+def _seeded(token: str) -> np.ndarray:
+    digest = hashlib.sha256(token.encode()).digest()
     seed = int.from_bytes(digest[:_SEED_BYTES], "big")
-    raw = np.random.RandomState(seed).normal(size=EMBEDDING_DIMENSIONS)
+    return np.random.RandomState(seed).normal(size=EMBEDDING_DIMENSIONS)
+
+
+def _vector(text: str) -> list[float]:
+    words = sorted(set(_WORD.findall(text.casefold())))
+    raw = np.sum([_seeded(word) for word in words], axis=0) if words else _seeded(text)
     return [float(value) for value in raw / np.linalg.norm(raw)]
