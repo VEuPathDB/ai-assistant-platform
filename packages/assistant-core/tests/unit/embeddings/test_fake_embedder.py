@@ -34,3 +34,20 @@ async def test_every_call_is_recorded() -> None:
 async def test_the_backend_setting_selects_the_fake(use_fake_embedder: None) -> None:
     del use_fake_embedder
     assert isinstance(get_embedder(), FakeEmbedder)
+
+
+async def test_a_title_finds_the_text_that_holds_it() -> None:
+    embedder = FakeEmbedder()
+    title = "5 asexual and sexual stage transcriptomes"
+    named = f"{title} RNA-Seq of the asexual blood stages, gametocytes and ookinetes"
+    texts = [
+        *(f"Study {n} of heat shock in mutant line {n}" for n in range(60)),
+        named,
+        *(f"Infection time course {n} in cell line {n}" for n in range(60)),
+    ]
+    query = await embedder.embed_query(title)
+    scores = [
+        sum(a * b for a, b in zip(query, vector, strict=True))
+        for vector in await embedder.embed_documents(texts)
+    ]
+    assert texts[scores.index(max(scores))] == named
