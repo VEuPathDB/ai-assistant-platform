@@ -2,6 +2,10 @@
 
 ## 2026-10-31
 
+- assistant-core 0.3.0b15 and assistant-client 0.3.0-beta.5. The offline
+  `FakeEmbedder` computes its vectors in a worker thread with NumPy's
+  `default_rng`, so a large batch no longer holds the event loop. The copy in
+  veupathdb-mcp 0.2.0b60 is the same code.
 - Protocol 2.4.0: `data-tool-approval` records the user's answer to one
   approval, as `{toolCallId, approvalId, approved, reason?}` with the
   `approvalId` as its `id`. `approval_answer_events` in `graph/approvals.py`
