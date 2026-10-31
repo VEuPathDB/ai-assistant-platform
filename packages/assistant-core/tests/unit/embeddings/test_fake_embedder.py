@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import math
 
 from assistant_core.embeddings.embedder import EMBEDDING_DIMENSIONS, get_embedder
@@ -51,3 +52,17 @@ async def test_a_title_finds_the_text_that_holds_it() -> None:
         for vector in await embedder.embed_documents(texts)
     ]
     assert texts[scores.index(max(scores))] == named
+
+
+async def test_a_large_batch_leaves_the_event_loop_free() -> None:
+    texts = [
+        " ".join(f"word{(n * 31 + k) % 5000}" for k in range(80)) for n in range(1500)
+    ]
+    embedding = asyncio.create_task(FakeEmbedder().embed_documents(texts))
+    ticks = 0
+    while not embedding.done():
+        ticks += 1
+        await asyncio.sleep(0)
+
+    assert ticks > 1
+    assert len(await embedding) == len(texts)

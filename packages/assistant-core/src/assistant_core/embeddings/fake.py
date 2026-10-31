@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import re
 from collections.abc import Sequence
@@ -23,17 +24,21 @@ class FakeEmbedder:
 
     async def embed_documents(self, texts: Sequence[str]) -> list[list[float]]:
         self.calls.append(list(texts))
-        return [_vector(text) for text in texts]
+        return await asyncio.to_thread(_vectors, list(texts))
 
     async def embed_query(self, text: str) -> list[float]:
         self.calls.append([text])
-        return _vector(text)
+        return await asyncio.to_thread(_vector, text)
 
 
 def _seeded(token: str) -> np.ndarray:
     digest = hashlib.sha256(token.encode()).digest()
     seed = int.from_bytes(digest[:_SEED_BYTES], "big")
-    return np.random.RandomState(seed).normal(size=EMBEDDING_DIMENSIONS)
+    return np.random.default_rng(seed).standard_normal(EMBEDDING_DIMENSIONS)
+
+
+def _vectors(texts: list[str]) -> list[list[float]]:
+    return [_vector(text) for text in texts]
 
 
 def _vector(text: str) -> list[float]:
