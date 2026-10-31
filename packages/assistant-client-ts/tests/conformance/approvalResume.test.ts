@@ -4,32 +4,36 @@ import { type ProtocolChunk } from "../../src/core/chunks.ts";
 import { reduceTurn } from "../../src/core/reduce.ts";
 import { reduceSnapshot } from "../../src/core/snapshot.ts";
 
-const SUSPENDED = "aaaaaaaa-0000-4000-8000-000000000001";
-const RESUMED = "bbbbbbbb-0000-4000-8000-000000000002";
+const MESSAGE = "aaaaaaaa-0000-4000-8000-000000000001";
 const CALL = "call_consult_user";
+const INPUT = { question: "Which orthologs?" };
+
+const PROMPT: ProtocolChunk = {
+  type: "user-message",
+  message: { id: "u1", role: "user", parts: [] },
+};
 
 const ASKED: ProtocolChunk[] = [
-  { type: "start", messageId: SUSPENDED },
+  { type: "start", messageId: MESSAGE },
   { type: "tool-input-start", toolCallId: CALL, toolName: "consult_user" },
   {
     type: "tool-input-available",
     toolCallId: CALL,
     toolName: "consult_user",
-    input: { question: "Which orthologs?" },
+    input: INPUT,
   },
   { type: "tool-approval-request", toolCallId: CALL, approvalId: "ap1" },
-  { type: "finish", finishReason: "stop" },
+  { type: "finish", finishReason: "other" },
   { type: "done" },
 ];
 
-/** The resumed turn re-enters the call on its input alone. */
 const ANSWERED: ProtocolChunk[] = [
-  { type: "start", messageId: RESUMED },
+  { type: "start", messageId: MESSAGE },
   {
     type: "tool-input-available",
     toolCallId: CALL,
     toolName: "consult_user",
-    input: { question: "Which orthologs?" },
+    input: INPUT,
   },
   {
     type: "tool-output-available",
@@ -40,29 +44,23 @@ const ANSWERED: ProtocolChunk[] = [
   { type: "done" },
 ];
 
-const THREAD: ProtocolChunk[] = [
-  { type: "user-message", message: { id: "u1", role: "user", parts: [] } },
-  ...ASKED,
-  ...ANSWERED,
-];
-
 describe("section 6.2, a turn suspended on an approval", () => {
   it("holds the call in approval-requested until the user answers", () => {
-    const suspended = reduceSnapshot(THREAD)[1];
+    const messages = reduceSnapshot([PROMPT, ...ASKED]);
 
-    expect(suspended?.id).toBe(SUSPENDED);
-    expect(suspended?.parts).toEqual([
+    expect(messages.map((message) => message.id)).toEqual(["u1", MESSAGE]);
+    expect(messages[1]?.parts).toEqual([
       {
         type: "tool-consult_user",
         toolCallId: CALL,
         state: "approval-requested",
-        input: { question: "Which orthologs?" },
+        input: INPUT,
         approval: { id: "ap1" },
       },
     ]);
   });
 
-  it("opens the resumed call on its input alone, with no second start", () => {
+  it("continues the open message, re-entering the call on its input alone", () => {
     expect(ANSWERED.map((chunk) => chunk.type)).toEqual([
       "start",
       "tool-input-available",
@@ -70,22 +68,34 @@ describe("section 6.2, a turn suspended on an approval", () => {
       "finish",
       "done",
     ]);
+    expect(ANSWERED[0]).toEqual({ type: "start", messageId: MESSAGE });
+  });
+
+  it("patches the asked call in the one message the thread holds", () => {
+    const messages = reduceSnapshot([PROMPT, ...ASKED, ...ANSWERED]);
+
+    expect(messages.map((message) => message.id)).toEqual(["u1", MESSAGE]);
+    expect(messages[1]?.parts).toEqual([
+      {
+        type: "tool-consult_user",
+        toolCallId: CALL,
+        state: "output-available",
+        input: INPUT,
+        output: { answer: "P. falciparum" },
+        approval: { id: "ap1", approved: true },
+      },
+    ]);
+  });
+
+  it("places the call for a reader that holds only the answering turn", () => {
     expect(reduceTurn(ANSWERED).parts).toEqual([
       {
         type: "tool-consult_user",
         toolCallId: CALL,
         state: "output-available",
-        input: { question: "Which orthologs?" },
+        input: INPUT,
         output: { answer: "P. falciparum" },
       },
     ]);
-  });
-
-  it("reads the answered call on the resumed message of the thread", () => {
-    const messages = reduceSnapshot(THREAD);
-
-    expect(messages).toHaveLength(3);
-    expect(messages[2]?.id).toBe(RESUMED);
-    expect(messages[2]?.parts.map((part) => part.type)).toEqual(["tool-consult_user"]);
   });
 });
