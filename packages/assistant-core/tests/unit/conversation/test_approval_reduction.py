@@ -116,3 +116,26 @@ def test_a_call_that_asked_for_no_approval_has_no_approval_key() -> None:
 
     assert part["state"] == "output-available"
     assert "approval" not in part
+
+
+def test_a_running_call_keeps_its_recorded_answer_beside_it() -> None:
+    answer = {
+        "type": "data-tool-approval",
+        "id": APPROVAL,
+        "data": {"toolCallId": CALL, "approvalId": APPROVAL, "approved": True},
+    }
+    answered = _answered()
+    message = reduce_chunks(
+        [*ASKED, answered[0], answer, answered[1]],
+        default_message_id=MESSAGE,
+    )
+
+    assert message["parts"] == [
+        {
+            "type": "tool-wipe",
+            "toolCallId": CALL,
+            "state": "input-available",
+            "input": INPUT,
+        },
+        answer,
+    ]

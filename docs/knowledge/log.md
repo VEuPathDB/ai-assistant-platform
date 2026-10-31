@@ -2,6 +2,20 @@
 
 ## 2026-10-31
 
+- Protocol 2.4.0: `data-tool-approval` records the user's answer to one
+  approval, as `{toolCallId, approvalId, approved, reason?}` with the
+  `approvalId` as its `id`. `approval_answer_events` in `graph/approvals.py`
+  builds one part per entry of `TurnStart.approval_responses`, and a host
+  writes them after the answering turn's `start`, before the graph runs, so
+  the part precedes the re-entered `tool-input-available` and no step opens
+  before it. Both reducers keep it as a data part. No tool state of the AI
+  SDK schema carries an answer while the call runs: `input-available` types
+  `approval` as never, and `approval-responded` makes
+  `lastAssistantMessageIsCompleteWithApprovalResponses` send the message
+  again. A reader shows the answer of a running call from the part. The
+  reference producer closes a turn that wrote `tool-approval-request` or
+  `data-background-task-started` with `finishReason: "other"`, as section 6
+  states and `open_message_of` reads; it wrote `stop`.
 - assistant-core 0.3.0b14 and assistant-client 0.3.0-beta.4. The offline
   `FakeEmbedder` sums one seeded vector per word of a text, so texts that share
   words lie close and a title finds the text that holds it. One text still gives

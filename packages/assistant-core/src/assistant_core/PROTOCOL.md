@@ -1,6 +1,6 @@
 # The assistant runtime wire protocol
 
-**Version 2.3.0.** This document specifies the bytes a client exchanges with an
+**Version 2.4.0.** This document specifies the bytes a client exchanges with an
 assistant built on `assistant_core`. It is written so a consumer in any
 language can implement a client from this page alone, with no reference to the
 JavaScript SDK that inspired the chunk vocabulary. Section 14 records what each
@@ -193,6 +193,7 @@ The runtime defines these. An assistant MAY register more.
 | `data-task-progress` | Progress of a durable tool. |
 | `data-task-completed` | A durable tool finished. |
 | `data-tool-summary` | One line saying what a tool call did. Patches the call's part. |
+| `data-tool-approval` | The user's answer to one approval. Carries the `toolCallId`, the `approvalId`, `approved` and, when the user gave one, `reason`. Its `id` is the `approvalId`. |
 
 <!-- data_parts:end -->
 
@@ -353,7 +354,9 @@ run, and the message stays open: the next turn names it in its `start` and
 continues it.
 
 The thread now holds the suspended call. The next turn carries the user's
-answer, in the body section 12.3 defines, and re-enters the same call: it
+answer, in the body section 12.3 defines. It records the answer as
+`data-tool-approval` after its `start` and before any other chunk for that
+call, and opens no step before it. It then re-enters the same call: it
 carries `tool-input-available` for that same `toolCallId`, then
 `tool-output-available` when the user approved and `tool-output-denied` when
 the user refused. No second `tool-input-start` precedes it, because the call
@@ -417,6 +420,20 @@ section 5 that are absent here are defined by the protocol and emitted by
 assistants that use those capabilities; the reference assistant does not.
 
 <!-- examples:begin -->
+
+#### `data-tool-approval`
+
+```json
+{
+  "type": "data-tool-approval",
+  "id": "call_wipe",
+  "data": {
+    "approved": true,
+    "approvalId": "call_wipe",
+    "toolCallId": "call_wipe"
+  }
+}
+```
 
 #### `data-tool-summary`
 
@@ -619,12 +636,17 @@ A client reduces a turn's chunks into one assistant message with an ordered
   `output-available` | `output-error` | `output-denied`. A later chunk for a
   call already in the array patches that part; it never appends a second one.
 - `tool-approval-request` sets the part's `approval` to `{id}`, the chunk's
-  `approvalId`. No chunk records the user's answer, so the reducer reads it from
-  the outcome of section 6.2. The re-entered `tool-input-available` drops
-  `approval`, because a part in `input-available` carries none. An
-  `output-available` or `output-error` part of a call that asked sets it to
-  `{id, approved: true}`, and an `output-denied` part to
-  `{id, approved: false}`. A call that never asked carries no `approval`.
+  `approvalId`. The re-entered `tool-input-available` drops `approval`,
+  because a part in `input-available` carries none. An `output-available` or
+  `output-error` part of a call that asked sets it to `{id, approved: true}`,
+  and an `output-denied` part to `{id, approved: false}`. A call that never
+  asked carries no `approval`.
+- `data-tool-approval` is kept as a data part under the rule below and patches
+  no tool part, because no tool state that carries an answer leaves the call
+  running. A reader shows the answer of a call in `input-available` from the
+  `data-tool-approval` whose `data.toolCallId` names it. A reader MUST NOT move
+  the call to `approval-responded`: a client that holds a part in that state
+  sends the answer again.
 - `data-tool-summary` addresses the tool part named by `data.toolCallId`. It
   sets that part's `summary` and `summaryStatus` and appends no part. A summary
   naming a call the client does not hold is ignored.
@@ -887,6 +909,7 @@ data: {"type":"done","reason":"completed"}
 
 | Version | What it added |
 | --- | --- |
+| `2.4.0` | `data-tool-approval` (sections 5.2, 6.2, 9): the turn that carries the user's answer records it before it re-enters the call, and a reducer keeps it as a data part. Before this no chunk recorded the answer, and a call the user approved showed no answer after a reload until its output arrived, because a part in `input-available` carries no `approval`. |
 | `2.3.0` | Section 9 states the `approval` a reduced tool part carries: `{id, approved: true}` on the outcome of an approved call, `{id, approved: false}` on a refused one, and none on a re-entered call that is still running. Before this a reducer kept the approval on a refused call and dropped it from an approved one, so a thread rebuilt from the snapshot showed the refusal and no record of the approval. |
 | `2.2.1` | A turn suspended on an approval closes with `finishReason: "other"` (sections 6 and 6.2), and a `start` that names the open message continues it from the cursor before its first `start` (section 4). Before this the turn closed with `stop`, the next turn reopened the same message, and a client that resumed it rebuilt it from the later `start` and dropped every part written before the approval. |
 | `2.2.0` | `data-tool-summary` `status` `corrected` (section 6.3): a call handed back to the model to send again is marked apart from a call that failed. Before this both reached the client as `output-error` with nothing between them, so every refusal the model recovered from read as a failure. |

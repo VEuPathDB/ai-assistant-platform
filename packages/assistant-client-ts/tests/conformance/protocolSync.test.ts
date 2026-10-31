@@ -17,11 +17,11 @@ describe("the vendored protocol capture", () => {
   });
 
   it("names the protocol version the document declares", () => {
-    expect(captured.version).toBe("2.3.0");
+    expect(captured.version).toBe("2.4.0");
   });
 
   it("carries one example per kind the reference assistant produces", () => {
-    expect(captured.examples).toHaveLength(18);
+    expect(captured.examples).toHaveLength(19);
     const kinds = captured.examples.map((example) => example.kind);
     expect(new Set(kinds).size).toBe(kinds.length);
   });

@@ -1,5 +1,5 @@
 {
-  "version": "2.3.0",
+  "version": "2.4.0",
   "chunkKinds": [
     "start",
     "start-step",
@@ -38,7 +38,8 @@
     "data-background-task-started",
     "data-task-progress",
     "data-task-completed",
-    "data-tool-summary"
+    "data-tool-summary",
+    "data-tool-approval"
   ],
   "envelopeKinds": [
     "user-message",
@@ -80,6 +81,10 @@
     ]
   },
   "examples": [
+    {
+      "kind": "data-tool-approval",
+      "json": "{\n  \"type\": \"data-tool-approval\",\n  \"id\": \"call_wipe\",\n  \"data\": {\n    \"approved\": true,\n    \"approvalId\": \"call_wipe\",\n    \"toolCallId\": \"call_wipe\"\n  }\n}"
+    },
     {
       "kind": "data-tool-summary",
       "json": "{\n  \"type\": \"data-tool-summary\",\n  \"data\": {\n    \"status\": \"ok\",\n    \"summary\": \"2 plus 3 is 5\",\n    \"toolCallId\": \"call_add\"\n  }\n}"

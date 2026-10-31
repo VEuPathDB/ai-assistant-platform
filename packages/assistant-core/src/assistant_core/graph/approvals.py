@@ -8,6 +8,7 @@ answers a durable task.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import Any
 
 from pydantic_ai.messages import ModelMessage, ModelMessagesTypeAdapter, ToolCallPart
@@ -18,8 +19,10 @@ from pydantic_ai.tools import (
     ToolDenied,
 )
 from pydantic_ai.ui.vercel_ai.request_types import ToolApprovalResponded
+from pydantic_ai.ui.vercel_ai.response_types import DataChunk
 
 from assistant_core.conversation.vercel_adapter import DeferredToolHint
+from assistant_core.graph.stream_events import tool_approval_event
 from assistant_core.graph.turn_state import (
     DurableCall,
     ParkedCall,
@@ -117,6 +120,20 @@ def approval_results(
     )
 
 
+def approval_answer_events(
+    responses: Mapping[str, ToolApprovalResponded],
+) -> list[DataChunk]:
+    return [
+        tool_approval_event(
+            tool_call_id=tool_call_id,
+            approval_id=response.id,
+            approved=response.approved,
+            reason=response.reason,
+        )
+        for tool_call_id, response in responses.items()
+    ]
+
+
 def resume_history(parked: ParkedCall) -> list[ModelMessage]:
     """The prior run's messages, so the model sees the call it asked about."""
     return ModelMessagesTypeAdapter.validate_json(parked.prior_messages_json)
@@ -152,6 +169,7 @@ def durable_hints(parked: PendingDurableCall) -> list[DeferredToolHint]:
 __all__ = [
     "DENIED_WITHOUT_REASON",
     "approval_answer",
+    "approval_answer_events",
     "approval_results",
     "deferred_hint",
     "durable_hints",

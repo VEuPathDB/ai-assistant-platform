@@ -9,7 +9,9 @@ from __future__ import annotations
 
 import json
 import re
+from collections.abc import Awaitable, Callable
 from datetime import datetime
+from functools import partial
 from pathlib import Path
 from typing import Any
 from uuid import UUID
@@ -20,6 +22,7 @@ from pydantic_ai.ui.vercel_ai.response_types import BaseChunk
 from tests.sse import DONE_PAYLOAD, read_stream
 from tests.synthetic import (
     ADD_PROMPT,
+    APPROVAL_CALL_ID,
     APPROVAL_PROMPT,
     LOOP_PROMPT,
     PLAIN_PROMPT,
@@ -100,11 +103,16 @@ async def captured(runtime: SyntheticRuntime) -> dict[str, str]:
     Each turn is read as its own stream, because a reader stops at the
     terminator of the turn it attached to.
     """
-    prompts = (PLAIN_PROMPT, ADD_PROMPT, APPROVAL_PROMPT, LOOP_PROMPT, STOP_PROMPT)
+    turns: list[Callable[[], Awaitable[object]]] = [
+        partial(runtime.run, prompt)
+        for prompt in (PLAIN_PROMPT, ADD_PROMPT, APPROVAL_PROMPT)
+    ]
+    turns.append(partial(runtime.answer_approval, APPROVAL_CALL_ID, approved=True))
+    turns.extend(partial(runtime.run, prompt) for prompt in (LOOP_PROMPT, STOP_PROMPT))
     examples: dict[str, str] = {}
     cursor = 0
-    for prompt in prompts:
-        await runtime.run(prompt)
+    for turn in turns:
+        await turn()
         frames = await read_stream(runtime.conversation_id, after=cursor)
         for frame in frames:
             if frame.is_done:
