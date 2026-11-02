@@ -56,9 +56,9 @@ def _provider_settings(provider: str) -> ModelSettings:
             anthropic_cache_messages=True,
         )
     if provider == "openai":
-        # History processors rewrite the turn, so each request must be self
-        # contained. The Responses API rejects item IDs it did not store.
-        return OpenAIResponsesModelSettings(openai_send_reasoning_ids=False)
+        # Each request sends the run's reasoning items back with their ids and
+        # encrypted content. A history processor keeps or drops a response whole.
+        return OpenAIResponsesModelSettings()
     if provider == "google":
         # Gemini caches implicitly and reads the cross-provider effort.
         return GoogleModelSettings()

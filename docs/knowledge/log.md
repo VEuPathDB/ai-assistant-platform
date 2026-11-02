@@ -1,5 +1,21 @@
 # Log
 
+## 2026-11-02
+
+- assistant-core 0.3.0b16. `build_model_settings` no longer sets
+  `openai_send_reasoning_ids=False`. With it off, pydantic-ai sent an earlier
+  reasoning item only as assistant text in think tags and never sent its
+  `encrypted_content`, so each call of a run started without the model's own
+  reasoning. pydantic-ai's default sends each reasoning item with its id and
+  encrypted content, followed by the item it preceded. No history processor
+  splits a `ModelResponse`: pairing and elision change requests only, and
+  compaction keeps or drops a response whole.
+  `tests/unit/models/test_reasoning_carry_over.py` reads the request body for
+  OpenAI and for Anthropic, whose signed thinking blocks need no setting. On
+  the live Responses API the request is accepted after elision, after
+  compaction, after a response that holds only reasoning, and with reasoning
+  items replayed a day after they were returned.
+
 ## 2026-10-31
 
 - assistant-core 0.3.0b15 and assistant-client 0.3.0-beta.5. The offline

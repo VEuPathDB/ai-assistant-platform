@@ -108,7 +108,6 @@ class TestTheTopEfforts:
 
         assert settings.get("openai_reasoning_effort") == "max"
         assert "thinking" not in settings
-        assert settings.get("openai_send_reasoning_ids") is False
 
     def test_openai_at_xhigh_carries_the_unified_level(self) -> None:
         settings = build_model_settings("openai:gpt-5.6-luna", thinking="xhigh")
@@ -169,7 +168,6 @@ class TestEveryRequestCarriesATimeout:
 
         assert anthropic.get("anthropic_cache_instructions") is True
         assert anthropic["thinking"] == "high"
-        assert openai.get("openai_send_reasoning_ids") is False
         assert openai["thinking"] == "high"
 
 
@@ -199,37 +197,6 @@ class TestEveryResponseHasAnOutputCap:
 
         assert settings["openai_reasoning_effort"] == "max"
         assert settings["timeout"] == 900
-
-
-class TestOpenAiItemIdsAreNotSentBack:
-    """The Responses API validates the item ids a request echoes back.
-
-    Every agent runs the history processors, so the history it sends never
-    matches what the API returned and the ids must stay out of it.
-    """
-
-    def test_openai_does_not_send_item_ids(self) -> None:
-        settings = build_model_settings("openai:gpt-5.6-luna")
-
-        assert settings.get("openai_send_reasoning_ids") is False
-
-    def test_it_is_disabled_regardless_of_thinking_effort(self) -> None:
-        for effort in ("none", "low", "medium", "high", "xhigh", "max"):
-            settings = build_model_settings("openai:gpt-5.6-luna", thinking=effort)
-
-            assert settings.get("openai_send_reasoning_ids") is False, effort
-
-    def test_anthropic_is_untouched(self) -> None:
-        settings = build_model_settings("anthropic:claude-sonnet-5")
-
-        assert "openai_send_reasoning_ids" not in settings
-        assert settings.get("anthropic_cache_messages") is True
-
-    def test_thinking_still_applied_for_openai(self) -> None:
-        settings = build_model_settings("openai:gpt-5.6-luna", thinking="high")
-
-        assert settings.get("thinking") == "high"
-        assert settings.get("openai_send_reasoning_ids") is False
 
 
 class TestEveryProviderHasItsOwnSettings:

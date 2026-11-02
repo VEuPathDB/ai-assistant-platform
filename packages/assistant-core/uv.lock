@@ -92,7 +92,7 @@ wheels = [
 
 [[package]]
 name = "assistant-core"
-version = "0.3.0b15"
+version = "0.3.0b16"
 source = { editable = "." }
 dependencies = [
     { name = "alembic" },
