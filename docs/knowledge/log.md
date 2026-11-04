@@ -1,5 +1,11 @@
 # Log
 
+## 2026-11-04
+
+- assistant-core 0.3.0b17. Raises authlib, dnspython, fastmcp-slim, joserfc, pyasn1, langgraph
+  1.2.14, langgraph-sdk and opentelemetry-api to versions with a published fix, and holds
+  minimatch at 11 in the workspace.
+
 ## 2026-11-02
 
 - assistant-core 0.3.0b16. `build_model_settings` no longer sets
