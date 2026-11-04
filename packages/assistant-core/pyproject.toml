@@ -9,7 +9,7 @@ dependencies = [
     "pydantic-ai>=2.54.0,<3",
     "jsonschema>=4.26.0",
     "genai-prices>=0.0.40",
-    "langgraph==1.2.11",
+    "langgraph==1.2.14",
     # This package owns the checkpoint serializer, so it owns the serializer's
     # version. apps/api depends on this package and inherits the pin, which is
     # what makes the two locks resolve one decoder.
