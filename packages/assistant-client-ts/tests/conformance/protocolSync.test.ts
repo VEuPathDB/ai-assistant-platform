@@ -17,7 +17,7 @@ describe("the vendored protocol capture", () => {
   });
 
   it("names the protocol version the document declares", () => {
-    expect(captured.version).toBe("2.4.0");
+    expect(captured.version).toBe("2.4.1");
   });
 
   it("carries one example per kind the reference assistant produces", () => {

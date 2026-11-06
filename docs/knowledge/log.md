@@ -2,6 +2,12 @@
 
 ## 2026-11-06
 
+- Protocol 2.4.1, assistant-core 0.9.0b3 and `@veupathdb/assistant-client` 0.9.0-beta.2.
+  Section 12.2 states that the values of `mode` belong to the assistant, and a mode it does
+  not know is refused with `422`, as an unknown `phaseModels` id is; section 12.5 names the
+  refusal. The `submit-message` example sends no `mode`, so a host that refuses an unknown
+  mode accepts the page's examples as written. The client's `captured.json` is synced.
+  veupathdb-mcp-conformance is unchanged at 0.9.0b1.
 - Every package takes the PathFinder release line: assistant-core 0.9.0b2,
   `@veupathdb/assistant-client` 0.9.0-beta.1, veupathdb-mcp-conformance 0.9.0b1. No code change.
 - assistant-core 0.9.0b1. pydantic-ai is 2.66.0, and the floor is 2.63.0. From 2.60 a tool

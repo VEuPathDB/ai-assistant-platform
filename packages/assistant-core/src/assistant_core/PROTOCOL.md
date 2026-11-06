@@ -1,6 +1,6 @@
 # The assistant runtime wire protocol
 
-**Version 2.4.0.** This document specifies the bytes a client exchanges with an
+**Version 2.4.1.** This document specifies the bytes a client exchanges with an
 assistant built on `assistant_core`. It is written so a consumer in any
 language can implement a client from this page alone, with no reference to the
 JavaScript SDK that inspired the chunk vocabulary. Section 14 records what each
@@ -726,10 +726,10 @@ say is omitted.
 
 <!-- request_core:end -->
 
-`phaseModels` and `phaseReasoning` are core because the runtime carries them to
-the assistant unread. The role names that key them, and the model ids a
-deployment admits, belong to the assistant: a key or an id it does not know is
-refused with `422`.
+`mode`, `phaseModels` and `phaseReasoning` are core because the runtime
+carries them to the assistant unread. The modes it runs, the role names that
+key the two maps, and the model ids a deployment admits, belong to the
+assistant: a mode, a key or an id it does not know is refused with `422`.
 
 An entry in `messages` may carry the turn facts section 6 attaches to an
 assistant message (`errors`, `aborted`, `finishReason`), and a tool part in
@@ -794,7 +794,7 @@ snapshot.
 | `403` | A cookie-authenticated write carries no `X-Requested-With`. |
 | `404` | `assistantId` names an assistant this deployment does not serve. |
 | `409` | `assistantId` names an assistant other than the one the thread was created with. |
-| `422` | The body does not validate, including a `phaseModels` value the assistant does not admit. |
+| `422` | The body does not validate, including a `mode` or a `phaseModels` value the assistant does not admit. |
 | `429` | A deployment-level budget for this caller is exhausted. |
 
 A thread keeps one assistant for its whole life, so replaying it always runs
@@ -813,7 +813,6 @@ it does not know; the fix is to read the thread's assistant, not to retry.
   "id": "7c9e6679-7425-40de-944b-e07fc1f90ae7",
   "trigger": "submit-message",
   "siteId": "example-site",
-  "mode": "default",
   "messages": [
     {
       "id": "b1d0f6b2-7d0e-4a1e-9f3c-1a2b3c4d5e6f",
@@ -909,6 +908,7 @@ data: {"type":"done","reason":"completed"}
 
 | Version | What it added |
 | --- | --- |
+| `2.4.1` | Section 12.2 states that the values of `mode` belong to the assistant, and that a mode it does not know is refused with `422`, as a `phaseModels` id it does not admit is; section 12.5 names the refusal. The `submit-message` example sends no `mode`. Before this the page named no refusal for `mode`, and the example sent a value the reference assistant does not define, so a host that refused an unknown mode refused the page's own example. |
 | `2.4.0` | `data-tool-approval` (sections 5.2, 6.2, 9): the turn that carries the user's answer records it before it re-enters the call, and a reducer keeps it as a data part. Before this no chunk recorded the answer, and a call the user approved showed no answer after a reload until its output arrived, because a part in `input-available` carries no `approval`. |
 | `2.3.0` | Section 9 states the `approval` a reduced tool part carries: `{id, approved: true}` on the outcome of an approved call, `{id, approved: false}` on a refused one, and none on a re-entered call that is still running. Before this a reducer kept the approval on a refused call and dropped it from an approved one, so a thread rebuilt from the snapshot showed the refusal and no record of the approval. |
 | `2.2.1` | A turn suspended on an approval closes with `finishReason: "other"` (sections 6 and 6.2), and a `start` that names the open message continues it from the cursor before its first `start` (section 4). Before this the turn closed with `stop`, the next turn reopened the same message, and a client that resumed it rebuilt it from the later `start` and dropped every part written before the approval. |

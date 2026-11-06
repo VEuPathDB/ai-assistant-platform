@@ -1,5 +1,5 @@
 {
-  "version": "2.4.0",
+  "version": "2.4.1",
   "chunkKinds": [
     "start",
     "start-step",
@@ -72,7 +72,7 @@
     "examples": [
       {
         "kind": "submit-message",
-        "json": "{\n  \"conversationId\": \"3f1a6f4e-2c3b-4d5e-8a7b-9c0d1e2f3a4b\",\n  \"id\": \"7c9e6679-7425-40de-944b-e07fc1f90ae7\",\n  \"trigger\": \"submit-message\",\n  \"siteId\": \"example-site\",\n  \"mode\": \"default\",\n  \"messages\": [\n    {\n      \"id\": \"b1d0f6b2-7d0e-4a1e-9f3c-1a2b3c4d5e6f\",\n      \"role\": \"user\",\n      \"parts\": [{ \"type\": \"text\", \"text\": \"what can you do\" }]\n    }\n  ]\n}"
+        "json": "{\n  \"conversationId\": \"3f1a6f4e-2c3b-4d5e-8a7b-9c0d1e2f3a4b\",\n  \"id\": \"7c9e6679-7425-40de-944b-e07fc1f90ae7\",\n  \"trigger\": \"submit-message\",\n  \"siteId\": \"example-site\",\n  \"messages\": [\n    {\n      \"id\": \"b1d0f6b2-7d0e-4a1e-9f3c-1a2b3c4d5e6f\",\n      \"role\": \"user\",\n      \"parts\": [{ \"type\": \"text\", \"text\": \"what can you do\" }]\n    }\n  ]\n}"
       },
       {
         "kind": "approval-response",
