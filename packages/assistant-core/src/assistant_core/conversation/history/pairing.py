@@ -8,7 +8,6 @@ from pydantic_ai.messages import (
     ModelRequest,
     ModelRequestPart,
     ModelResponse,
-    RetryPromptPart,
     ToolCallPart,
     ToolReturnPart,
 )
@@ -26,8 +25,6 @@ _PLACEHOLDER_CONTENT = (
 def collect_ids(
     messages: Sequence[ModelMessage],
 ) -> tuple[set[str], set[str], bool, bool]:
-    # ``ModelRetry`` produces a ``RetryPromptPart`` (no ``ToolReturnPart``)
-    # carrying the same ``tool_call_id``, also counts as satisfying the call.
     call_ids: set[str] = set()
     satisfied_ids: set[str] = set()
     seen_returns: set[str] = set()
@@ -43,11 +40,11 @@ def collect_ids(
                 call_ids.add(part.tool_call_id)
             elif isinstance(part, ToolReturnPart):
                 satisfied_ids.add(part.tool_call_id)
+                if part.outcome == "retried":
+                    continue
                 if part.tool_call_id in seen_returns:
                     has_duplicate_returns = True
                 seen_returns.add(part.tool_call_id)
-            elif isinstance(part, RetryPromptPart) and part.tool_call_id:
-                satisfied_ids.add(part.tool_call_id)
     return call_ids, satisfied_ids, has_duplicate_returns, has_duplicate_calls
 
 
@@ -65,7 +62,7 @@ def _drop_orphan_and_duplicate_returns(
             continue
         kept_parts: list[ModelRequestPart] = []
         for p in msg.parts:
-            if isinstance(p, ToolReturnPart):
+            if isinstance(p, ToolReturnPart) and p.outcome != "retried":
                 if p.tool_call_id in orphan_return_ids:
                     continue
                 if p.tool_call_id in seen_return_ids:

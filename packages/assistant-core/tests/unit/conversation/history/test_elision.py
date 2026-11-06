@@ -8,11 +8,11 @@ from pydantic_ai.messages import (
     ModelMessage,
     ModelRequest,
     ModelResponse,
-    RetryPromptPart,
     SystemPromptPart,
     TextPart,
     ToolCallPart,
     ToolReturnPart,
+    ToolSearchReturnPart,
     UserPromptPart,
 )
 
@@ -197,12 +197,14 @@ def test_user_and_system_messages_untouched() -> None:
     assert "follow-up question" in user_contents
 
 
-def test_retry_prompt_parts_untouched() -> None:
-    """Retry prompt parts carry error feedback and stay verbatim."""
-    retry = RetryPromptPart(
-        content="invalid arguments, try again",
-        tool_call_id="call_0",
+def test_retried_returns_untouched() -> None:
+    """Retried returns carry error feedback and stay verbatim."""
+    feedback = "invalid arguments, try again. " * 40
+    retry = ToolReturnPart(
         tool_name="tool_x",
+        content=feedback,
+        tool_call_id="call_0",
+        outcome="retried",
     )
     msgs: list[ModelMessage] = [_user("go")]
     for i in range(_FIRST_BLOCK + 2):
@@ -226,8 +228,8 @@ def test_retry_prompt_parts_untouched() -> None:
         if not isinstance(msg, ModelRequest):
             continue
         for part in msg.parts:
-            if isinstance(part, RetryPromptPart):
-                assert part.content == "invalid arguments, try again"
+            if isinstance(part, ToolReturnPart) and part.outcome == "retried":
+                assert part.content == feedback
                 found_retry = True
     assert found_retry
 
@@ -492,3 +494,24 @@ class TestElisionGrowsInBlocks:
         for calls in range(_FIRST_BLOCK):
             prefix = _first_calls(history, calls)
             assert elide_consumed(prefix) == prefix, calls
+
+
+def test_a_tool_search_return_keeps_its_discovered_tools() -> None:
+    found = ToolSearchReturnPart(
+        content={
+            "discovered_tools": [
+                {"name": f"tool_{i}", "description": "D" * 40} for i in range(20)
+            ]
+        },
+        tool_call_id="call_0",
+    )
+    msgs: list[ModelMessage] = [_user("go")]
+    for i in range(_FIRST_BLOCK + 2):
+        msgs.append(_assistant_with_call(f"call_{i}"))
+        msgs.append(
+            ModelRequest(parts=[found]) if i == 0 else _tool_return(f"call_{i}")
+        )
+
+    out = elide_consumed(list(msgs))
+
+    assert out[2].parts == [found]

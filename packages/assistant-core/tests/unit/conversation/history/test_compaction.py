@@ -8,6 +8,8 @@ from pydantic_ai.messages import (
     ModelMessagesTypeAdapter,
     ModelRequest,
     ModelResponse,
+    RetryFeedbackPart,
+    RetryInfo,
     SystemPromptPart,
     TextPart,
     ToolCallPart,
@@ -461,3 +463,32 @@ def test_a_compacted_section_update_is_carried_whole_and_never_quoted_as_the_use
     carried = [p.content for p in head.parts if isinstance(p, UserPromptPart)]
     assert carried[-1] == update
     assert not any("user said: " + SECTION_UPDATE_LEAD[:20] in str(c) for c in carried)
+
+
+def test_a_retried_call_in_the_middle_is_digested_as_a_retry() -> None:
+    msgs = _history(50)
+    msgs[52] = ModelRequest(
+        parts=[
+            ToolReturnPart(
+                tool_name="tool_x",
+                content="column x is not a field of this table",
+                tool_call_id="call_25",
+                outcome="retried",
+            )
+        ]
+    )
+
+    digest = _digest_prompts(compact_history(list(msgs)))[0]
+
+    assert (
+        '- tool_x({"q":"query_call_25"}) -> retry: column x is not a field of this table'
+        in digest.splitlines()
+    )
+
+
+def test_output_feedback_counts_toward_the_estimate() -> None:
+    feedback = RetryFeedbackPart(
+        content="R" * 4_000, retry=RetryInfo(cause="model_retry")
+    )
+
+    assert _estimated_tokens([ModelRequest(parts=[feedback])]) == 1_000

@@ -3,6 +3,7 @@ from __future__ import annotations
 import dataclasses
 import json
 from collections.abc import Sequence
+from typing import Any, TypeGuard
 
 from pydantic_ai.messages import (
     ModelMessage,
@@ -54,6 +55,10 @@ def _too_small_to_elide(content: object) -> bool:
     return len(rendered) <= _ELIDE_MIN_CHARS
 
 
+def _plain_answer(part: ModelRequestPart) -> TypeGuard[ToolReturnPart[Any]]:
+    return type(part) is ToolReturnPart and part.outcome != "retried"
+
+
 def _ordered_tool_call_ids(messages: Sequence[ModelMessage]) -> list[str]:
     out: list[str] = []
     for msg in messages:
@@ -92,7 +97,7 @@ def _elide_returns_in_message(
         # raw object in ``.content``, so a string-only guard would skip the
         # heaviest payloads. The stub compares equal, which keeps this idempotent.
         if (
-            isinstance(part, ToolReturnPart)
+            _plain_answer(part)
             and part.tool_call_id in elide_ids
             and not part.files
             and not _already_elided(part.content)

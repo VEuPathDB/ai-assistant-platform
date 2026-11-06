@@ -1,5 +1,16 @@
 # Log
 
+## 2026-11-06
+
+- assistant-core 0.9.0b1. pydantic-ai is 2.66.0, and the floor is 2.63.0. From 2.60 a tool
+  retry is the call's own `ToolReturnPart` with `outcome="retried"` and an output retry is a
+  `RetryFeedbackPart`; `RetryPromptPart` is deprecated. `vercel_adapter` marks a retried
+  result corrected, as before. Pairing counts a retried return as an answer to its call and
+  never as a duplicate of a later return on the same id, so a script that reuses one call id
+  keeps its last request. Elision leaves retried returns and typed tool returns whole, and
+  compaction digests a retried return as `retry: <reason>`. `models.scripted.tool_return_parts`
+  holds no retried return, and `retried_returns` replaces `retry_prompt_parts`.
+
 ## 2026-11-04
 
 - assistant-core 0.3.0b17. Raises authlib, dnspython, fastmcp-slim, joserfc, pyasn1, langgraph

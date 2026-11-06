@@ -8,7 +8,7 @@ from pydantic_ai.messages import (
     FunctionToolResultEvent,
     OutputToolCallEvent,
     OutputToolResultEvent,
-    RetryPromptPart,
+    RetryInfo,
     ToolCallPart,
     ToolReturnPart,
 )
@@ -35,17 +35,19 @@ async def _chunks(*events: Any) -> list[dict[str, Any]]:
     ]
 
 
-async def _results(result: RetryPromptPart | ToolReturnPart) -> list[dict[str, Any]]:
+async def _results(result: ToolReturnPart) -> list[dict[str, Any]]:
     return await _chunks(
         FunctionToolCallEvent(part=_CALL), FunctionToolResultEvent(part=result)
     )
 
 
 async def test_a_call_handed_back_to_the_model_is_marked_corrected() -> None:
-    retry = RetryPromptPart(
-        content="dataset records cannot be counted by x.",
+    retry = ToolReturnPart(
         tool_name="count",
+        content="dataset records cannot be counted by x.",
         tool_call_id="call_1",
+        outcome="retried",
+        retry=RetryInfo(cause="model_retry"),
     )
 
     chunks = await _results(retry)
@@ -62,17 +64,19 @@ async def test_a_call_handed_back_to_the_model_is_marked_corrected() -> None:
 
 
 async def test_arguments_the_tool_refuses_are_marked_corrected() -> None:
-    retry = RetryPromptPart(
+    retry = ToolReturnPart(
+        tool_name="count",
         content=[
             {
                 "type": "missing",
-                "loc": ("column",),
+                "loc": ["column"],
                 "msg": "Field required",
                 "input": {},
             }
         ],
-        tool_name="count",
         tool_call_id="call_1",
+        outcome="retried",
+        retry=RetryInfo(cause="validation_error"),
     )
 
     chunks = await _results(retry)
@@ -98,10 +102,12 @@ async def test_a_failed_call_is_not_marked_corrected() -> None:
 
 
 async def test_an_output_handed_back_to_the_model_is_marked_corrected() -> None:
-    retry = RetryPromptPart(
-        content="This reply does not match what the turn did.",
+    retry = ToolReturnPart(
         tool_name="final_result",
+        content="This reply does not match what the turn did.",
         tool_call_id="call_1",
+        outcome="retried",
+        retry=RetryInfo(cause="model_retry"),
     )
 
     chunks = await _chunks(

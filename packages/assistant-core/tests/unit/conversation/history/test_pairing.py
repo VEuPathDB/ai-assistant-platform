@@ -398,3 +398,27 @@ class TestPairToolCalls:
         _, _, has_dup_returns, has_dup_calls = collect_ids(messages)
         assert has_dup_returns is False
         assert has_dup_calls is False
+
+
+def test_a_call_id_reused_after_a_retry_keeps_the_last_request() -> None:
+    retried = ModelRequest(
+        parts=[
+            ToolReturnPart(
+                tool_name="foo",
+                content="column x is not a field",
+                tool_call_id="c1",
+                outcome="retried",
+            ),
+        ],
+    )
+    history = [
+        _user("hi"),
+        _assistant(_tool_call("c1")),
+        retried,
+        _assistant(_tool_call("c1")),
+        _tool_return("c1"),
+    ]
+
+    result = pair_orphans(history)
+
+    assert result == history

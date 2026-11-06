@@ -12,7 +12,6 @@ from pydantic_ai.messages import (
     PartDeltaEvent,
     PartEndEvent,
     PartStartEvent,
-    RetryPromptPart,
     TextPart,
     ThinkingPart,
     ToolReturnPart,
@@ -66,11 +65,13 @@ def declined_request(error: Exception) -> ModelDeclinedError | None:
 _REFUSED_ARGUMENTS = "Sent with arguments the tool does not accept"
 
 
-def _corrected(part: ToolReturnPart | RetryPromptPart) -> list[BaseChunk]:
+def _corrected(part: ToolReturnPart) -> list[BaseChunk]:
     match part:
-        case RetryPromptPart(content=str() as said, tool_call_id=call_id):
+        case ToolReturnPart(
+            outcome="retried", content=str() as said, tool_call_id=call_id
+        ):
             return summary_chunks(call_id, said, status="corrected")
-        case RetryPromptPart(tool_call_id=call_id):
+        case ToolReturnPart(outcome="retried", tool_call_id=call_id):
             return summary_chunks(call_id, _REFUSED_ARGUMENTS, status="corrected")
         case _:
             return []

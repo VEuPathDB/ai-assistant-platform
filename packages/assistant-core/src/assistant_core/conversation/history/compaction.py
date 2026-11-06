@@ -13,7 +13,7 @@ from pydantic_ai.messages import (
     ModelRequestPart,
     ModelResponse,
     ModelResponsePart,
-    RetryPromptPart,
+    RetryFeedbackPart,
     SystemPromptPart,
     TextContent,
     TextPart,
@@ -56,7 +56,7 @@ _CONTENT_PARTS = (
     SystemPromptPart,
     UserPromptPart,
     BaseToolReturnPart,
-    RetryPromptPart,
+    RetryFeedbackPart,
     TextPart,
     ThinkingPart,
     CompactionPart,
@@ -163,10 +163,9 @@ def _middle_results(middle: Sequence[ModelMessage]) -> dict[str, str]:
             continue
         for part in msg.parts:
             if isinstance(part, BaseToolReturnPart):
-                out[part.tool_call_id] = _flat(part.content, _RESULT_HEAD_CHARS)
-            elif isinstance(part, RetryPromptPart) and part.tool_call_id:
                 head = _flat(part.content, _RESULT_HEAD_CHARS)
-                out[part.tool_call_id] = f"retry: {head}"
+                retried = part.outcome == "retried"
+                out[part.tool_call_id] = f"retry: {head}" if retried else head
     return out
 
 

@@ -16,9 +16,9 @@ from pydantic_ai.messages import (
     ModelMessage,
     ModelRequest,
     ModelResponse,
-    RetryPromptPart,
     TextPart,
     ToolCallPart,
+    ToolReturnPart,
 )
 from pydantic_ai.models.function import AgentInfo, FunctionModel
 from pydantic_ai.models.openai import OpenAIResponsesModel
@@ -138,11 +138,11 @@ async def test_a_withheld_tool_is_refused_if_a_model_calls_it_anyway() -> None:
     def _model(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
         del info
         refusals = [
-            part.model_response()
+            part.model_response_str()
             for message in messages
             if isinstance(message, ModelRequest)
             for part in message.parts
-            if isinstance(part, RetryPromptPart)
+            if isinstance(part, ToolReturnPart) and part.outcome == "retried"
         ]
         if refusals:
             told.extend(refusals)
