@@ -2,6 +2,8 @@
 
 ## 2026-11-06
 
+- Every package takes the PathFinder release line: assistant-core 0.9.0b2,
+  `@veupathdb/assistant-client` 0.9.0-beta.1, veupathdb-mcp-conformance 0.9.0b1. No code change.
 - assistant-core 0.9.0b1. pydantic-ai is 2.66.0, and the floor is 2.63.0. From 2.60 a tool
   retry is the call's own `ToolReturnPart` with `outcome="retried"` and an output retry is a
   `RetryFeedbackPart`; `RetryPromptPart` is deprecated. `vercel_adapter` marks a retried
