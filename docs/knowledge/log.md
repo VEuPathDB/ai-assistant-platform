@@ -1,5 +1,14 @@
 # Log
 
+## 2026-11-07
+
+- assistant-core 0.9.0b4. pydantic-ai 2.66 streams three deltas a client sends back to rebuild
+  the run's history: `data-model-settings-delta`, `data-tool-availability-delta` and
+  `data-capability-load-delta`. The runtime keeps the history in its checkpoint and a client
+  sends no history, so `PhaseStreamEmitter` drops the three events before the stream and no
+  chunk reaches the event log. Revision `2026_11_07_0006` deletes the three from
+  `conversation_events`, so a thread logged before the change replays without them.
+
 ## 2026-11-06
 
 - Protocol 2.4.1, assistant-core 0.9.0b3 and `@veupathdb/assistant-client` 0.9.0-beta.2.

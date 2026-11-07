@@ -42,7 +42,7 @@ from assistant_core.persistence.models import (
 from assistant_core.platform.context import DEFAULT_APPLICATION_ID
 from assistant_core.platform.types import PaidBy
 
-HEAD = "2026_09_24_0005"
+HEAD = "2026_11_07_0006"
 TASKS = "2026_09_09_0004"
 HOST_TABLES = [HOST_USERS]
 

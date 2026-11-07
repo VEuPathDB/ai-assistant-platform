@@ -7,13 +7,16 @@ from typing import Any, Literal
 from langgraph.errors import GraphBubbleUp
 from pydantic_ai.exceptions import ContentFilterError
 from pydantic_ai.messages import (
+    CapabilityLoadDeltaEvent,
     FunctionToolResultEvent,
+    ModelSettingsDeltaEvent,
     OutputToolResultEvent,
     PartDeltaEvent,
     PartEndEvent,
     PartStartEvent,
     TextPart,
     ThinkingPart,
+    ToolAvailabilityDeltaEvent,
     ToolReturnPart,
 )
 from pydantic_ai.ui.vercel_ai._event_stream import VercelAIEventStream
@@ -202,6 +205,19 @@ _TOOL_OUTPUT_CHUNKS = (
 )
 
 
+_HISTORY_DELTAS = (
+    ModelSettingsDeltaEvent,
+    ToolAvailabilityDeltaEvent,
+    CapabilityLoadDeltaEvent,
+)
+
+
+async def _without_history_deltas(events: AsyncIterator[Any]) -> AsyncIterator[Any]:
+    async for event in events:
+        if not isinstance(event, _HISTORY_DELTAS):
+            yield event
+
+
 @dataclass
 class DeferredToolHint:
     tool_call_id: str
@@ -234,7 +250,9 @@ class PhaseStreamEmitter:
         self,
         events: AsyncIterator[Any],
     ) -> AsyncIterator[BaseChunk]:
-        async for chunk in self._stream.transform_stream(events):
+        async for chunk in self._stream.transform_stream(
+            _without_history_deltas(events)
+        ):
             if isinstance(chunk, (StartChunk, FinishChunk, DoneChunk)):
                 continue
             for synthetic in self._synthesize_missing_start(chunk):
