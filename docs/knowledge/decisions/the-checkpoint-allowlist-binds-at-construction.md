@@ -54,6 +54,6 @@ where it is declared, never to silence a warning.
 `packages/assistant-core/tests/unit/conversation/test_checkpoint_serde.py` (a
 declared type decodes with no serde event; an undeclared one does not survive)
 and by
-`pathfinder: apps/api/src/pathfinder/tests/integration/ai/test_state_read_allowlist.py`,
+`pathfinder: apps/api/src/strategist/tests/integration/ai/test_state_read_allowlist.py`,
 which reads a finished thread through `graph.aget_state` and asserts LangGraph
 reports nothing.

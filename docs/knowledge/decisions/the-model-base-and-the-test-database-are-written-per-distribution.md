@@ -32,7 +32,7 @@ and `NaN` on the wire and the runtime never sees one.
 with the `asyncpg` driver, and stops it. It is written three times, in
 `packages/assistant-core/tests/conftest.py`, in
 `veupathdb-mcp: tests/integration/conftest.py`, and in
-`pathfinder: apps/api/src/pathfinder/tests/conftest.py`. Only the image name is
+`pathfinder: apps/api/src/strategist/tests/conftest.py`. Only the image name is
 shared; each copy then does what only its own repository can do. The runtime
 creates its own `Base.metadata`, the tool server runs its own alembic chain to
 head, and the application reuses a `DATABASE_URL` that answers and falls back to
@@ -71,7 +71,7 @@ arrives under a name no consumer reads.
 
 Nothing detects that today. The shape to copy if it ever bites is the drift gate
 the application already runs over the two copies of the embedder:
-`pathfinder: apps/api/src/pathfinder/tests/unit/platform/test_embedder_copies_agree.py`
+`pathfinder: apps/api/src/strategist/tests/unit/platform/test_embedder_copies_agree.py`
 parses both modules, strips the imports and the docstring, renames the
 distribution-specific symbols to one placeholder, and compares the rest. An
 application that installs both distributions is the only process that can run
