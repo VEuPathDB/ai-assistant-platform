@@ -19,6 +19,7 @@ from typing import Any, TypeGuard
 from uuid import uuid4
 
 from pydantic_ai.messages import (
+    ERROR_OUTCOMES,
     ModelMessage,
     ModelRequest,
     ModelResponse,
@@ -130,25 +131,25 @@ def _called_tools(messages: list[ModelMessage]) -> list[str]:
     return [p.tool_name for p in called_tool_parts(messages)]
 
 
+def _returns(messages: list[ModelMessage]) -> list[ToolReturnPart]:
+    return [
+        part
+        for msg in messages
+        if isinstance(msg, ModelRequest)
+        for part in msg.parts
+        if isinstance(part, ToolReturnPart)
+    ]
+
+
 def tool_return_parts(messages: list[ModelMessage]) -> list[ToolReturnPart]:
-    return [
-        part
-        for msg in messages
-        if isinstance(msg, ModelRequest)
-        for part in msg.parts
-        if isinstance(part, ToolReturnPart) and part.outcome != "retried"
-    ]
+    """The answers the tools gave: every return that reached the model as no error."""
+    return [p for p in _returns(messages) if p.outcome not in ERROR_OUTCOMES]
 
 
-def retried_returns(messages: list[ModelMessage]) -> list[ToolReturnPart]:
-    """The refusals a tool sent back, so a script can branch on one."""
-    return [
-        part
-        for msg in messages
-        if isinstance(msg, ModelRequest)
-        for part in msg.parts
-        if isinstance(part, ToolReturnPart) and part.outcome == "retried"
-    ]
+def refused_returns(messages: list[ModelMessage]) -> list[ToolReturnPart]:
+    """The refusals a tool sent back, a retry or a ``CallRefused``, so a script
+    can branch on one."""
+    return [p for p in _returns(messages) if p.outcome in ERROR_OUTCOMES]
 
 
 def has_any(text: str, markers: tuple[str, ...]) -> bool:

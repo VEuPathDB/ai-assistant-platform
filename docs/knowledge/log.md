@@ -1,5 +1,17 @@
 # Log
 
+## 2026-11-23
+
+- assistant-core 0.9.0b5. `lifespan_checkpointer` runs `setup()` without the turn's
+  checkpoint deadline: LangGraph's `CREATE INDEX CONCURRENTLY` waits for every older
+  snapshot in the database, so a host that writes while it starts held the setup past 30
+  seconds, the deadline cancelled the build and the app exited. A cancelled concurrent build
+  leaves an invalid index that `IF NOT EXISTS` then skips, so the entry now rebuilds every
+  invalid index of the three checkpoint tables with `REINDEX INDEX CONCURRENTLY`. The
+  scripted helpers read a refusal by either error outcome: `refused_returns` replaces
+  `retried_returns` and also holds a `CallRefused` result (`outcome="failed"`), and
+  `tool_return_parts` holds neither.
+
 ## 2026-11-07
 
 - assistant-core 0.9.0b4. pydantic-ai 2.66 streams three deltas a client sends back to rebuild
