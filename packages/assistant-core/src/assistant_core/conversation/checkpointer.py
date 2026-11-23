@@ -13,6 +13,8 @@ from langgraph.checkpoint.base import (
     CheckpointTuple,
 )
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
+from psycopg import AsyncConnection, sql
+from psycopg.rows import DictRow, dict_row
 from sqlalchemy.engine import make_url
 
 from assistant_core.conversation.deadline import checkpoint_deadline
@@ -72,6 +74,29 @@ class BoundedPostgresSaver(BoundedCheckpointCalls, AsyncPostgresSaver):
     """The Postgres checkpointer, under the turn's deadline."""
 
 
+_CHECKPOINT_TABLES = ["checkpoints", "checkpoint_blobs", "checkpoint_writes"]
+
+_INVALID_INDEXES = """
+SELECT index_class.relname
+FROM pg_index
+JOIN pg_class AS index_class ON index_class.oid = pg_index.indexrelid
+JOIN pg_class AS table_class ON table_class.oid = pg_index.indrelid
+WHERE NOT pg_index.indisvalid
+  AND table_class.relname = ANY(%s)
+  AND table_class.relnamespace = current_schema()::regnamespace
+"""
+
+
+async def _rebuild_invalid_indexes(conn: AsyncConnection[DictRow]) -> None:
+    cursor = await conn.execute(_INVALID_INDEXES, (_CHECKPOINT_TABLES,))
+    for row in await cursor.fetchall():
+        await conn.execute(
+            sql.SQL("REINDEX INDEX CONCURRENTLY {}").format(
+                sql.Identifier(row["relname"])
+            )
+        )
+
+
 @asynccontextmanager
 async def lifespan_checkpointer(
     database_url: str,
@@ -81,14 +106,19 @@ async def lifespan_checkpointer(
     """Open a checkpointer for the app's lifetime.
 
     The saver bounds every call it serves, and closes its connection on exit.
-    Calls ``setup()`` on entry to create checkpoint tables idempotently.
+    Calls ``setup()`` on entry to create checkpoint tables idempotently. The
+    setup is not bounded: a concurrent index build waits for older snapshots,
+    and a cancelled build leaves an invalid index, which the entry rebuilds.
     ``checkpoint_types`` is the union the installed assistants declare; a
     caller that only needs the tables can leave it empty.
     """
     psycopg_url = to_psycopg_url(database_url)
-    async with BoundedPostgresSaver.from_conn_string(
-        psycopg_url, serde=build_checkpoint_serde(checkpoint_types)
-    ) as saver:
-        async with checkpoint_deadline("setup"):
-            await saver.setup()
+    async with await AsyncConnection.connect(
+        psycopg_url, autocommit=True, prepare_threshold=0, row_factory=dict_row
+    ) as conn:
+        saver = BoundedPostgresSaver(
+            conn, serde=build_checkpoint_serde(checkpoint_types)
+        )
+        await saver.setup()
+        await _rebuild_invalid_indexes(conn)
         yield saver
