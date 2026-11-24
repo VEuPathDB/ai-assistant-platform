@@ -168,7 +168,34 @@ class ToolRepetitionGuard:
         if tool_name not in self.read_only_tools:
             self._reset()
             return None
+        return self._repeat(
+            tool_name, tool_args, tool_call_id=tool_call_id, run_step=run_step, first=1
+        )
 
+    def check_repeat(
+        self,
+        tool_name: str,
+        tool_args: object,
+        *,
+        tool_call_id: str = "",
+        run_step: int,
+    ) -> RepetitionBlock | None:
+        """The identical-arguments rule alone, for a host that answers a repeat
+        itself: the call it holds is the second of its streak, and it spends no
+        cap."""
+        return self._repeat(
+            tool_name, tool_args, tool_call_id=tool_call_id, run_step=run_step, first=2
+        )
+
+    def _repeat(
+        self,
+        tool_name: str,
+        tool_args: object,
+        *,
+        tool_call_id: str,
+        run_step: int,
+        first: int,
+    ) -> RepetitionBlock | None:
         fingerprint = _args_fingerprint(tool_args)
         if tool_name == self._last_tool and fingerprint == self._last_fingerprint:
             self._consecutive_count += 1
@@ -176,7 +203,7 @@ class ToolRepetitionGuard:
             self._repeat_warned_at = None
             self._last_tool = tool_name
             self._last_fingerprint = fingerprint
-            self._consecutive_count = 1
+            self._consecutive_count = first
 
         if self._consecutive_count < self.threshold:
             return None

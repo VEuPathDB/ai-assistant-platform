@@ -2,6 +2,11 @@
 
 ## 2026-11-24
 
+- assistant-core 0.9.0b7. `ToolRepetitionGuard.check_repeat` runs the identical-arguments rule
+  alone for a host that answers a repeat itself: the held call is the second of its streak, it
+  spends no call cap, and an escalated streak stops the run as `check` does. A host that holds
+  every repeat builds the guard with no `read_only_tools`, so `check` counts only the caps.
+
 - assistant-core 0.9.0b6. A digest of an elided tool result ends `<elided to control
   context size>` and no longer tells the model not to fetch it again: a host that holds
   the result answers a second identical read from it. `is_elided` reads whether a tool

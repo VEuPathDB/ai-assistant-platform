@@ -74,3 +74,23 @@ def test_a_new_argument_clears_the_warning_with_the_streak() -> None:
     assert block.count == 3
     assert not block.escalated
     assert guard.stopped_call_id == ""
+
+
+def test_a_host_that_holds_repeats_counts_them_apart_from_the_caps() -> None:
+    guard = ToolRepetitionGuard(call_caps={"find": 1})
+    guard.check("find", {"q": "a"}, tool_call_id="call-1", run_step=1)
+
+    held = [
+        guard.check_repeat("find", {"q": "a"}, tool_call_id=f"call-{n}", run_step=n)
+        for n in (2, 3, 4)
+    ]
+
+    refused = [b for b in held if b is not None]
+    assert [(b.count, b.escalated, b.rule) for b in refused] == [
+        (3, False, "identical_arguments"),
+        (4, True, "identical_arguments"),
+    ]
+    assert guard.stopped_call_id == "call-4"
+    assert (
+        guard.check("find", {"q": "b"}, tool_call_id="call-5", run_step=5) is not None
+    )
