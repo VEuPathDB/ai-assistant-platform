@@ -1,5 +1,13 @@
 # Log
 
+## 2026-11-24
+
+- assistant-core 0.9.0b6. A digest of an elided tool result ends `<elided to control
+  context size>` and no longer tells the model not to fetch it again: a host that holds
+  the result answers a second identical read from it. `is_elided` reads whether a tool
+  return holds a digest, so a host can tell a result the model still sees from one it
+  does not.
+
 ## 2026-11-23
 
 - assistant-core 0.9.0b5. `lifespan_checkpointer` runs `setup()` without the turn's

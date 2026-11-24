@@ -5,7 +5,7 @@ results, compaction folds the middle into one digest.
 """
 
 from assistant_core.conversation.history.compaction import compact_history
-from assistant_core.conversation.history.elision import elide_consumed
+from assistant_core.conversation.history.elision import elide_consumed, is_elided
 from assistant_core.conversation.history.pairing import pair_orphans
 
 HISTORY_PROCESSORS = (
@@ -18,5 +18,6 @@ __all__ = [
     "HISTORY_PROCESSORS",
     "compact_history",
     "elide_consumed",
+    "is_elided",
     "pair_orphans",
 ]

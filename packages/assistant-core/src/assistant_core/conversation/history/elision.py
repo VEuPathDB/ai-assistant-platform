@@ -26,7 +26,7 @@ than a round trip to fetch it again."""
 
 _ELIDE_DIGEST_CHARS = 220
 
-_ELIDED_MARKER = "<elided to control context size"
+_ELIDED_MARKER = "<elided to control context size>"
 
 
 def _digest(content: object) -> str:
@@ -37,14 +37,12 @@ def _digest(content: object) -> str:
     except TypeError, ValueError:
         rendered = str(content)
     head = rendered[:_ELIDE_DIGEST_CHARS]
-    return f"{head}... {_ELIDED_MARKER}; already acted on, do not fetch again>"
+    return f"{head}... {_ELIDED_MARKER}"
 
 
-def _already_elided(content: object) -> bool:
-    """Idempotent: a digest must not be digested again on the next pass."""
-    return isinstance(content, str) and content.endswith(
-        "already acted on, do not fetch again>"
-    )
+def is_elided(content: object) -> bool:
+    """Whether a tool return holds a digest in place of its result."""
+    return isinstance(content, str) and content.endswith(_ELIDED_MARKER)
 
 
 def _too_small_to_elide(content: object) -> bool:
@@ -100,7 +98,7 @@ def _elide_returns_in_message(
             _plain_answer(part)
             and part.tool_call_id in elide_ids
             and not part.files
-            and not _already_elided(part.content)
+            and not is_elided(part.content)
             and not _too_small_to_elide(part.content)
         ):
             new_parts.append(

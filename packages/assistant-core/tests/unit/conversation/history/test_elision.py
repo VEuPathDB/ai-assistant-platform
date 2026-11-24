@@ -21,6 +21,7 @@ from assistant_core.conversation.history.elision import (
     ELIDE_BLOCK,
     KEEP_RECENT_TOOL_PAIRS,
     elide_consumed,
+    is_elided,
 )
 
 # Results at or under the size guard stay whole, so this payload is larger.
@@ -423,6 +424,26 @@ class TestElisionDoesNotCauseRefetching:
 
         assert compressed
         assert "re-call" not in compressed[0].lower()
+
+    def test_the_digest_never_forbids_a_second_read(self) -> None:
+        bulky = {"records": [{"id": f"g{i}"} for i in range(500)]}
+        results: list[object] = [bulky] * (_FIRST_BLOCK + 2)
+
+        kept = _returned_contents(elide_consumed(self._history(results)))
+        compressed = [k for k in kept if is_elided(k)]
+
+        assert compressed
+        assert all("do not fetch" not in k.lower() for k in compressed)
+
+    def test_a_reader_tells_a_digest_from_a_whole_result(self) -> None:
+        bulky = {"records": [{"id": f"g{i}"} for i in range(500)]}
+        results: list[object] = [bulky] * (_FIRST_BLOCK + 2)
+
+        kept = _returned_contents(elide_consumed(self._history(results)))
+
+        assert [is_elided(k) for k in kept] == [True] * ELIDE_BLOCK + [False] * (
+            len(results) - ELIDE_BLOCK
+        )
 
     def test_recent_results_are_untouched(self) -> None:
         bulky = {"records": [{"id": f"g{i}"} for i in range(500)]}
